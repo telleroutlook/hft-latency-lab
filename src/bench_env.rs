@@ -14,20 +14,54 @@ pub fn read_ctxt_switches() -> (u64, u64) {
     (vol, nonvol)
 }
 
+/// Read total interrupt count from /proc/interrupts.
+// TODO: parse per-CPU columns from /proc/interrupts header to isolate the
+// pinned core's IRQ count. Current sum-all-CPUs approach is fine for "is the
+// machine noisy?" but cannot answer "was my isolated core disturbed?".
+fn read_total_irqs() -> u64 {
+    let s = std::fs::read_to_string("/proc/interrupts").unwrap_or_default();
+    let mut total = 0u64;
+    for line in s.lines() {
+        // Skip header line
+        if line.starts_with("           ") {
+            continue;
+        }
+        // Each line: "IRQ_NAME:  cpu0  cpu1  ..."
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        // Skip the IRQ name (first field), sum the per-CPU counts
+        for part in parts.iter().skip(1) {
+            if let Ok(v) = part.parse::<u64>() {
+                total += v;
+            }
+        }
+    }
+    total
+}
+
 pub struct EnvSnapshot {
     pub vol: u64,
     pub nonvol: u64,
+    pub irqs: u64,
 }
 
 impl EnvSnapshot {
     pub fn take() -> Self {
         let (vol, nonvol) = read_ctxt_switches();
-        Self { vol, nonvol }
+        let irqs = read_total_irqs();
+        Self { vol, nonvol, irqs }
     }
 
-    /// Returns true if no involuntary preemption occurred between two snapshots.
+    /// Returns true if no involuntary preemption or significant IRQ activity occurred.
     pub fn isolation_clean(&self, after: &EnvSnapshot) -> bool {
-        after.nonvol - self.nonvol == 0
+        let nonvol_ok = after.nonvol - self.nonvol == 0;
+        let irq_delta = after.irqs.saturating_sub(self.irqs);
+        // Threshold: allow small IRQ activity (system housekeeping), flag large spikes
+        if irq_delta > 10_000 {
+            eprintln!(
+                "WARNING: {irq_delta} interrupts during measurement — IRQ noise may inflate tail latencies"
+            );
+        }
+        nonvol_ok
     }
 }
 

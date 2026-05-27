@@ -22,7 +22,7 @@ impl LatencyReport {
     pub fn from_cycles(samples: &[u64], ghz: f64) -> Self {
         let mut h = Histogram::new(SIGNIFICANT_DIGITS).expect("histogram init");
         for &s in samples {
-            let ns = (s as f64 / ghz) as u64;
+            let ns = (s as f64 / ghz).round() as u64;
             h.record(ns).ok();
         }
         Self { h, unit: "ns" }

@@ -4,76 +4,135 @@
 //! Run with: `./hft-latency-lab microarch --experiment <name>`
 
 /// Software prefetch experiment — measure whether _mm_prefetch helps order book traversal.
+/// Uses interleaved A/B runs to avoid cache state leaking between conditions.
 pub fn prefetch_experiment(iters: usize, ghz: f64) {
     use crate::data::gen;
     use crate::histogram::LatencyReport;
     use crate::latency_buf::LatencyBuffer;
     use crate::orderbook::book::OrderBook;
+    use crate::parser::naive::Message;
     use crate::timer;
 
     let (stream, _) = gen::generate_paired_streams(iters, iters / 2, iters / 4);
     let msgs = crate::parser::optimized::parse_all(&stream);
 
-    // Baseline: no prefetch
-    let mut book = OrderBook::new(iters);
-    let mut buf_no_prefetch = LatencyBuffer::with_capacity(msgs.len());
+    let n_rounds = 5;
+    let mut buf_no_prefetch = LatencyBuffer::with_capacity(msgs.len() * n_rounds);
+    let mut buf_prefetch = LatencyBuffer::with_capacity(msgs.len() * n_rounds);
 
-    for msg in &msgs {
-        let start = timer::rdtsc_serialized();
-        match msg {
-            crate::parser::naive::Message::AddOrder(a) => {
-                book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+    for round in 0..n_rounds {
+        // Alternate: even rounds = no-prefetch first, odd = prefetch first
+        if round % 2 == 0 {
+            // No-prefetch run (fresh book)
+            let mut book = OrderBook::new(iters);
+            for msg in &msgs {
+                let start = timer::rdtsc_serialized();
+                match msg {
+                    Message::AddOrder(a) => {
+                        book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    }
+                    Message::OrderCancel(c) => {
+                        book.cancel_order(c.order_ref);
+                    }
+                    Message::OrderDelete(d) => {
+                        book.delete_order(d.order_ref);
+                    }
+                    Message::OrderExecuted(e) => {
+                        book.execute_order(e.order_ref, e.executed_shares);
+                    }
+                    _ => {}
+                }
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_no_prefetch.record(elapsed);
             }
-            crate::parser::naive::Message::OrderCancel(c) => {
-                book.cancel_order(c.order_ref);
+
+            // Prefetch run (fresh book)
+            let mut book2 = OrderBook::new(iters);
+            for msg in &msgs {
+                // Issue prefetch BEFORE the timing window — prefetch is asynchronous
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    std::arch::x86_64::_mm_prefetch(
+                        msg as *const _ as *const i8,
+                        std::arch::x86_64::_MM_HINT_T0,
+                    );
+                }
+                let start = timer::rdtsc_serialized();
+                match msg {
+                    Message::AddOrder(a) => {
+                        book2.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    }
+                    Message::OrderCancel(c) => {
+                        book2.cancel_order(c.order_ref);
+                    }
+                    Message::OrderDelete(d) => {
+                        book2.delete_order(d.order_ref);
+                    }
+                    Message::OrderExecuted(e) => {
+                        book2.execute_order(e.order_ref, e.executed_shares);
+                    }
+                    _ => {}
+                }
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_prefetch.record(elapsed);
             }
-            crate::parser::naive::Message::OrderDelete(d) => {
-                book.delete_order(d.order_ref);
+        } else {
+            // Reversed order: prefetch first, then no-prefetch
+            let mut book2 = OrderBook::new(iters);
+            for msg in &msgs {
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    std::arch::x86_64::_mm_prefetch(
+                        msg as *const _ as *const i8,
+                        std::arch::x86_64::_MM_HINT_T0,
+                    );
+                }
+                let start = timer::rdtsc_serialized();
+                match msg {
+                    Message::AddOrder(a) => {
+                        book2.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    }
+                    Message::OrderCancel(c) => {
+                        book2.cancel_order(c.order_ref);
+                    }
+                    Message::OrderDelete(d) => {
+                        book2.delete_order(d.order_ref);
+                    }
+                    Message::OrderExecuted(e) => {
+                        book2.execute_order(e.order_ref, e.executed_shares);
+                    }
+                    _ => {}
+                }
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_prefetch.record(elapsed);
             }
-            crate::parser::naive::Message::OrderExecuted(e) => {
-                book.execute_order(e.order_ref, e.executed_shares);
+
+            let mut book = OrderBook::new(iters);
+            for msg in &msgs {
+                let start = timer::rdtsc_serialized();
+                match msg {
+                    Message::AddOrder(a) => {
+                        book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    }
+                    Message::OrderCancel(c) => {
+                        book.cancel_order(c.order_ref);
+                    }
+                    Message::OrderDelete(d) => {
+                        book.delete_order(d.order_ref);
+                    }
+                    Message::OrderExecuted(e) => {
+                        book.execute_order(e.order_ref, e.executed_shares);
+                    }
+                    _ => {}
+                }
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_no_prefetch.record(elapsed);
             }
-            _ => {}
         }
-        let elapsed = timer::rdtsc_serialized() - start;
-        buf_no_prefetch.record(elapsed);
     }
 
     let report_no_pf = LatencyReport::from_cycles(buf_no_prefetch.finish(), ghz);
     report_no_pf.print("no-prefetch");
-
-    // With prefetch: re-create book and re-run with explicit prefetch hints
-    let mut book2 = OrderBook::new(iters);
-    let mut buf_prefetch = LatencyBuffer::with_capacity(msgs.len());
-
-    for msg in &msgs {
-        // Prefetch the message data
-        #[cfg(target_arch = "x86_64")]
-        unsafe {
-            std::arch::x86_64::_mm_prefetch(
-                msg as *const _ as *const i8,
-                std::arch::x86_64::_MM_HINT_T0,
-            );
-        }
-        let start = timer::rdtsc_serialized();
-        match msg {
-            crate::parser::naive::Message::AddOrder(a) => {
-                book2.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
-            }
-            crate::parser::naive::Message::OrderCancel(c) => {
-                book2.cancel_order(c.order_ref);
-            }
-            crate::parser::naive::Message::OrderDelete(d) => {
-                book2.delete_order(d.order_ref);
-            }
-            crate::parser::naive::Message::OrderExecuted(e) => {
-                book2.execute_order(e.order_ref, e.executed_shares);
-            }
-            _ => {}
-        }
-        let elapsed = timer::rdtsc_serialized() - start;
-        buf_prefetch.record(elapsed);
-    }
 
     let report_pf = LatencyReport::from_cycles(buf_prefetch.finish(), ghz);
     report_pf.print("with-prefetch");
@@ -82,6 +141,10 @@ pub fn prefetch_experiment(iters: usize, ghz: f64) {
     let p50_ratio = report_no_pf.p50() as f64 / report_pf.p50() as f64;
     let p99_ratio = report_no_pf.p99() as f64 / report_pf.p99() as f64;
     println!("\n=== Prefetch Experiment Verdict ===");
+    println!(
+        "Methodology: interleaved A/B/A/B runs ({} rounds), prefetch BEFORE timing window",
+        n_rounds
+    );
     if p50_ratio > 1.05 {
         println!("Prefetch HELPS: p50 {p50_ratio:.2}x, p99 {p99_ratio:.2}x");
     } else if p50_ratio < 0.95 {
@@ -90,12 +153,15 @@ pub fn prefetch_experiment(iters: usize, ghz: f64) {
         println!("Prefetch NEUTRAL: p50 {p50_ratio:.2}x, p99 {p99_ratio:.2}x (within noise)");
     }
     println!(
-        "Note: this is an HONEST experiment — software prefetch often has no measurable effect."
+        "HONEST ASSESSMENT: software prefetch on sequential msg iteration rarely helps — \
+         the hardware prefetcher already handles linear access patterns."
     );
 }
 
-/// Branch prediction hint experiment — test likely/unlikely on msg_type switch.
-pub fn branch_hint_experiment(iters: usize, ghz: f64) {
+/// Branch predictor warmup experiment — homogeneous vs heterogeneous message streams.
+/// Tests whether the BTB learns a single-type stream faster than mixed types.
+/// This is NOT about static likely/unlikely hints (Rust lacks stable intrinsics for those).
+pub fn branch_predictor_experiment(iters: usize, ghz: f64) {
     use crate::data::gen;
     use crate::histogram::LatencyReport;
     use crate::latency_buf::LatencyBuffer;
@@ -140,19 +206,22 @@ pub fn branch_hint_experiment(iters: usize, ghz: f64) {
     let report_single = LatencyReport::from_cycles(buf_single.finish(), ghz);
     report_single.print("parse-single-type");
 
-    println!("\n=== Branch Prediction Experiment Verdict ===");
+    println!("\n=== Branch Predictor Warmup Experiment Verdict ===");
     let ratio = report_normal.p50() as f64 / report_single.p50() as f64;
     println!("Mixed vs single-type p50 ratio: {ratio:.2}x");
     if ratio > 1.10 {
-        println!("Branch prediction IS a factor — msg_type switch contributes to overhead.");
+        println!("BTB warmup IS a factor — msg_type switch contributes to overhead.");
     } else {
-        println!("Branch prediction is NOT a major factor — Zen 3 BP handles it well.");
+        println!("BTB warmup is NOT a major factor — Zen 3 BP handles it well.");
     }
-    println!("HONEST ASSESSMENT: Zen 3's branch predictor is very strong. Static hints");
-    println!("are unlikely to help. This is an expected 'honest falsification' case.");
+    println!("HONEST ASSESSMENT: This measures BTB warmup with homogeneous vs mixed streams,");
+    println!("not static likely/unlikely hints (Rust lacks stable intrinsics for those).");
+    println!(
+        "Zen 3's branch predictor is very strong — this is an expected 'honest falsification'."
+    );
 }
 
-/// SIMD field extraction experiment — test AVX2 batch parsing vs scalar.
+/// SIMD field extraction experiment — test AVX2 batch msg_type scanning vs scalar.
 pub fn simd_experiment(iters: usize, ghz: f64) {
     use crate::data::gen;
     use crate::histogram::LatencyReport;
@@ -161,68 +230,126 @@ pub fn simd_experiment(iters: usize, ghz: f64) {
 
     let (stream, _) = gen::generate_paired_streams(iters, iters / 2, iters / 4);
 
-    // Scalar baseline (our optimized parser)
+    // First pass: extract msg_type positions for both scalar and SIMD to work on
+    let positions: Vec<usize> = {
+        let mut pos = 0;
+        let mut out = Vec::new();
+        while pos + 2 <= stream.len() {
+            let msg_len = u16::from_be_bytes([stream[pos], stream[pos + 1]]) as usize;
+            let msg_start = pos + 2;
+            let msg_end = msg_start + msg_len;
+            if msg_end > stream.len() {
+                break;
+            }
+            out.push(msg_start);
+            pos = msg_end;
+        }
+        out
+    };
+
+    // Build contiguous type byte buffer once — outside any timing window.
+    // Both scalar and SIMD paths read from this, so the comparison is fair.
+    let type_bytes: Vec<u8> = positions
+        .iter()
+        .filter(|&&p| p < stream.len())
+        .map(|&p| stream[p])
+        .collect();
+
+    // Scalar baseline: count msg_types one-by-one
     let mut buf_scalar = LatencyBuffer::with_capacity(10);
     for _ in 0..10 {
+        let mut type_counts = [0u32; 256];
         let start = timer::rdtsc_serialized();
-        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(
-            &stream,
-        )));
+        for &b in &type_bytes {
+            type_counts[b as usize] += 1;
+        }
+        std::hint::black_box(&type_counts);
         let elapsed = timer::rdtsc_serialized() - start;
         buf_scalar.record(elapsed);
     }
     let report_scalar = LatencyReport::from_cycles(buf_scalar.finish(), ghz);
-    report_scalar.print("scalar-parse");
+    report_scalar.print("scalar-type-count");
 
-    // SIMD-accelerated parsing: batch extract multiple msg_type bytes at once
-    // using AVX2 _mm256_cmpeq_epi8 to identify message boundaries
-    let mut buf_simd = LatencyBuffer::with_capacity(10);
-    for _ in 0..10 {
-        let start = timer::rdtsc_serialized();
-        let result = simd_scan_message_types(&stream);
-        std::hint::black_box(&result);
-        let elapsed = timer::rdtsc_serialized() - start;
-        buf_simd.record(elapsed);
+    // SIMD: use AVX2 _mm256_cmpeq_epi8 to count msg_types 32 at a time
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut buf_simd = LatencyBuffer::with_capacity(10);
+        for _ in 0..10 {
+            let start = timer::rdtsc_serialized();
+            let counts = simd_count_types_avx2(&type_bytes);
+            std::hint::black_box(&counts);
+            let elapsed = timer::rdtsc_serialized() - start;
+            buf_simd.record(elapsed);
+        }
+        let report_simd = LatencyReport::from_cycles(buf_simd.finish(), ghz);
+        report_simd.print("simd-avx2-type-count");
+
+        println!("\n=== SIMD Experiment Verdict ===");
+        let ratio = report_scalar.p50() as f64 / report_simd.p50() as f64;
+        if ratio > 1.1 {
+            println!("AVX2 type-scan HELPS: {ratio:.2}x faster");
+        } else if ratio < 0.9 {
+            println!("AVX2 type-scan HURTS: {ratio:.2}x slower");
+        } else {
+            println!("AVX2 type-scan NEUTRAL: {ratio:.2}x (within noise)");
+        }
+        println!("Note: msg_type scan is a micro-benchmark of AVX2 batch comparison.");
+        println!("Full SIMD parsing is hard with variable-length ITCH messages.");
     }
-    let report_simd = LatencyReport::from_cycles(buf_simd.finish(), ghz);
-    report_simd.print("simd-scan-types");
-
-    println!("\n=== SIMD Experiment Verdict ===");
-    let ratio = report_scalar.p50() as f64 / report_simd.p50() as f64;
-    println!("Scalar vs SIMD type-scan ratio: {ratio:.2}x");
-    println!("Note: This only tests msg_type scanning, not full field extraction.");
-    println!("Full SIMD parsing would require aligned data — hard with variable-length messages.");
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (iters, ghz);
+        println!("AVX2 not available on this platform");
+    }
 }
 
-/// SIMD scan: use AVX2 to batch-identify message types in the byte stream.
-fn simd_scan_message_types(data: &[u8]) -> Vec<usize> {
-    let mut positions = Vec::new();
-    let mut pos = 0;
+/// AVX2 batch msg_type counting: load 32 type bytes at a time and compare
+/// against known types using _mm256_cmpeq_epi8.
+/// Expects a pre-built contiguous type byte buffer (built outside the timing window).
+#[cfg(target_arch = "x86_64")]
+fn simd_count_types_avx2(type_bytes: &[u8]) -> [u32; 256] {
+    use std::arch::x86_64::*;
 
-    // First, extract all message start positions (after length prefix)
-    while pos + 2 <= data.len() {
-        let msg_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        let msg_start = pos + 2;
-        let msg_end = msg_start + msg_len;
-        if msg_end > data.len() {
-            break;
+    let mut counts = [0u32; 256];
+
+    // Count each known ITCH type using AVX2
+    let known_types: &[u8] = b"SLAFECXDPQB";
+
+    for &target in known_types {
+        let target_vec = unsafe { _mm256_set1_epi8(target as i8) };
+        let mut total = 0u32;
+        let mut i = 0;
+        let n = type_bytes.len();
+
+        while i + 32 <= n {
+            unsafe {
+                let chunk = _mm256_loadu_si256(type_bytes.as_ptr().add(i) as *const __m256i);
+                let eq = _mm256_cmpeq_epi8(chunk, target_vec);
+                let mask = _mm256_movemask_epi8(eq);
+                total += mask.count_ones();
+            }
+            i += 32;
         }
-        positions.push(msg_start);
-        pos = msg_end;
+
+        // Scalar tail
+        while i < n {
+            if type_bytes[i] == target {
+                total += 1;
+            }
+            i += 1;
+        }
+
+        counts[target as usize] = total;
     }
 
-    // Now batch-scan message types using AVX2
-    let mut type_counts = [0usize; 256];
-    for &p in &positions {
-        if p < data.len() {
-            type_counts[data[p] as usize] += 1;
-        }
-    }
-
-    positions
+    counts
 }
 
 /// BMI2 bit field extraction experiment.
+///
+/// Known: `pext` is microcoded on AMD Zen/Zen2/Zen3 (~18 cycle latency vs ~3 on Intel Haswell+).
+/// This experiment is expected to show "HURTS" on AMD — reproducing a known architectural fact,
+/// not an exploratory finding. On Intel Haswell+, the conclusion would likely reverse.
 pub fn bmi2_experiment(iters: usize, ghz: f64) {
     use crate::histogram::LatencyReport;
     use crate::latency_buf::LatencyBuffer;
@@ -407,8 +534,8 @@ pub fn run_all(iters: usize, ghz: f64) {
     println!("\n--- Experiment 1: Software Prefetch ---");
     prefetch_experiment(iters, ghz);
 
-    println!("\n--- Experiment 2: Branch Prediction ---");
-    branch_hint_experiment(iters, ghz);
+    println!("\n--- Experiment 2: Branch Predictor Warmup ---");
+    branch_predictor_experiment(iters, ghz);
 
     println!("\n--- Experiment 3: SIMD Type Scan ---");
     simd_experiment(iters, ghz);

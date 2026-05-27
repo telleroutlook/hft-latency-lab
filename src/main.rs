@@ -92,27 +92,24 @@ fn main() {
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
             let (natural, shuffled_data) =
-                data::gen::generate_paired_streams(iters / 2, iters / 4, iters / 8);
+                data::gen::generate_paired_streams(iters, iters / 2, iters / 4);
             let stream = if shuffled { &shuffled_data } else { &natural };
 
-            let mut buf = latency_buf::LatencyBuffer::with_capacity(iters);
+            // Per-message latency: each sample is one parse_one call
+            let mut buf = latency_buf::LatencyBuffer::with_capacity(
+                stream.len() / 20, // rough message count estimate
+            );
             let before = bench_env::EnvSnapshot::take();
 
-            for _ in 0..iters {
-                let start = timer::rdtsc_serialized();
-                std::hint::black_box(parser::optimized::parse_all(std::hint::black_box(stream)));
-                let elapsed = timer::rdtsc_serialized() - start;
-                buf.record(elapsed);
-            }
+            let _msgs = parser::optimized::parse_all_timed(stream, &mut buf);
 
             let after = bench_env::EnvSnapshot::take();
-            let isolated = before.isolation_clean(&after);
 
             let report = histogram::LatencyReport::from_cycles(buf.finish(), ghz);
             let mode = if shuffled { "shuffled" } else { "natural" };
-            report.print(&format!("parser-bench-{mode}"));
+            report.print(&format!("parser-per-msg-{mode}"));
 
-            if !isolated {
+            if !before.isolation_clean(&after) {
                 eprintln!("WARNING: involuntary context switches detected — isolation broken, data unreliable");
             }
         }
@@ -180,34 +177,25 @@ fn main() {
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
             let (natural, _) = data::gen::generate_paired_streams(iters, iters / 2, iters / 4);
+            let msg_count_est = natural.len() / 20;
 
-            // Naive parser benchmark
-            let mut buf_naive = latency_buf::LatencyBuffer::with_capacity(iters);
-            for _ in 0..iters {
-                let start = timer::rdtsc_serialized();
-                std::hint::black_box(parser::naive::parse_all(std::hint::black_box(&natural)));
-                let elapsed = timer::rdtsc_serialized() - start;
-                buf_naive.record(elapsed);
-            }
+            // Naive parser: per-message timing
+            let mut buf_naive = latency_buf::LatencyBuffer::with_capacity(msg_count_est);
+            let _ = parser::naive::parse_all_timed(&natural, &mut buf_naive);
             let naive_report = histogram::LatencyReport::from_cycles(buf_naive.finish(), ghz);
-            naive_report.print("naive");
+            naive_report.print("naive-per-msg");
 
-            // Optimized parser benchmark
-            let mut buf_opt = latency_buf::LatencyBuffer::with_capacity(iters);
-            for _ in 0..iters {
-                let start = timer::rdtsc_serialized();
-                std::hint::black_box(parser::optimized::parse_all(std::hint::black_box(&natural)));
-                let elapsed = timer::rdtsc_serialized() - start;
-                buf_opt.record(elapsed);
-            }
+            // Optimized parser: per-message timing
+            let mut buf_opt = latency_buf::LatencyBuffer::with_capacity(msg_count_est);
+            let _ = parser::optimized::parse_all_timed(&natural, &mut buf_opt);
             let opt_report = histogram::LatencyReport::from_cycles(buf_opt.finish(), ghz);
-            opt_report.print("optimized");
+            opt_report.print("optimized-per-msg");
 
             // Comparison
             let speedup_p50 = naive_report.p50() as f64 / opt_report.p50() as f64;
             let speedup_p99 = naive_report.p99() as f64 / opt_report.p99() as f64;
             let speedup_p999 = naive_report.p999() as f64 / opt_report.p999() as f64;
-            println!("\n=== Comparison ===");
+            println!("\n=== Per-Message Comparison ===");
             println!("p50   speedup: {speedup_p50:.2}x");
             println!("p99   speedup: {speedup_p99:.2}x");
             println!("p99.9 speedup: {speedup_p999:.2}x");
@@ -220,9 +208,7 @@ fn main() {
             let (stream, _) =
                 data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
 
-            // Per-stage latency buffers
-            let _parse_buf = latency_buf::LatencyBuffer::with_capacity(messages);
-            let mut book_buf = latency_buf::LatencyBuffer::with_capacity(messages);
+            let mut book_buf = latency_buf::LatencyBuffer::with_capacity(messages / 64 + 1);
 
             let mut book = orderbook::book::OrderBook::new(messages);
             let _bbo_count = 0u64;
@@ -237,26 +223,36 @@ fn main() {
             let msgs = parser::optimized::parse_all(&stream);
             let parse_elapsed = timer::rdtsc_serialized() - parse_start;
 
-            // Stage 2: Feed to order book one-by-one with per-message timing
-            for msg in &msgs {
-                let msg_start = timer::rdtsc_serialized();
-                match msg {
-                    parser::naive::Message::AddOrder(a) => {
-                        book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+            // Stage 2: Feed to order book in batches of 64 to amortize timer overhead.
+            // Per-message rdtsc (~20-40 cycles) dominates the actual op (~30-80 cycles),
+            // so batch timing gives honest per-message estimates.
+            let batch_size = 64;
+            let mut msg_idx = 0;
+            while msg_idx < msgs.len() {
+                let batch_end = (msg_idx + batch_size).min(msgs.len());
+                let batch_start = timer::rdtsc_serialized();
+                for msg in &msgs[msg_idx..batch_end] {
+                    match msg {
+                        parser::naive::Message::AddOrder(a) => {
+                            book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                        }
+                        parser::naive::Message::OrderCancel(c) => {
+                            book.cancel_order(c.order_ref);
+                        }
+                        parser::naive::Message::OrderDelete(d) => {
+                            book.delete_order(d.order_ref);
+                        }
+                        parser::naive::Message::OrderExecuted(e) => {
+                            book.execute_order(e.order_ref, e.executed_shares);
+                        }
+                        _ => {}
                     }
-                    parser::naive::Message::OrderCancel(c) => {
-                        book.cancel_order(c.order_ref);
-                    }
-                    parser::naive::Message::OrderDelete(d) => {
-                        book.delete_order(d.order_ref);
-                    }
-                    parser::naive::Message::OrderExecuted(e) => {
-                        book.execute_order(e.order_ref, e.executed_shares);
-                    }
-                    _ => {}
                 }
-                let msg_elapsed = timer::rdtsc_serialized() - msg_start;
-                book_buf.record(msg_elapsed);
+                let batch_elapsed = timer::rdtsc_serialized() - batch_start;
+                let n = (batch_end - msg_idx) as u64;
+                let per_msg = batch_elapsed / n;
+                book_buf.record(per_msg);
+                msg_idx = batch_end;
             }
 
             let after = bench_env::EnvSnapshot::take();
@@ -272,9 +268,17 @@ fn main() {
                 "Parse per-msg avg: {:.2} ns",
                 timer::cycles_to_ns(parse_elapsed, ghz) / msgs.len() as f64
             );
+            println!(
+                "Order book timing: batched ({} msgs/batch), per-msg = batch_elapsed / batch_size",
+                batch_size
+            );
 
             let book_report = histogram::LatencyReport::from_cycles(book_buf.finish(), ghz);
-            book_report.print("orderbook-per-msg");
+            book_report.print("orderbook-per-msg-batched-mean");
+            println!(
+                "  Note: p99 = p99 of {}-msg batch means; individual-op tail variance is smoothed out by batching.",
+                batch_size
+            );
 
             println!("\nOrder book state:");
             println!(
@@ -299,13 +303,13 @@ fn main() {
 
             match experiment.as_deref() {
                 Some("prefetch") => microarch::prefetch_experiment(iters, ghz),
-                Some("branch") => microarch::branch_hint_experiment(iters, ghz),
+                Some("branch_predictor") => microarch::branch_predictor_experiment(iters, ghz),
                 Some("simd") => microarch::simd_experiment(iters, ghz),
                 Some("bmi2") => microarch::bmi2_experiment(iters, ghz),
                 Some("false-sharing") => microarch::false_sharing_experiment(ghz),
                 Some("all") | None => microarch::run_all(iters, ghz),
                 _ => eprintln!(
-                    "Unknown experiment. Options: prefetch, branch, simd, bmi2, false-sharing, all"
+                    "Unknown experiment. Options: prefetch, branch_predictor, simd, bmi2, false-sharing, all"
                 ),
             }
         }

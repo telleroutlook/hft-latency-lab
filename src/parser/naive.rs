@@ -397,6 +397,41 @@ pub fn parse_all(buf: &[u8]) -> Vec<Message> {
     msgs
 }
 
+/// Parse all messages, recording per-message latency into `latency_buf`.
+/// Each sample in the buffer is the elapsed cycles for one `parse_one` call
+/// (excluding the 2-byte length-prefix read).
+pub fn parse_all_timed(
+    buf: &[u8],
+    latency_buf: &mut crate::latency_buf::LatencyBuffer,
+) -> Vec<Message> {
+    use crate::timer::rdtsc_serialized;
+
+    let mut msgs = Vec::new();
+    let mut pos = 0;
+    while pos < buf.len() {
+        if pos + 2 > buf.len() {
+            break;
+        }
+        let msg_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
+        let msg_start = pos + 2;
+        let msg_end = msg_start + msg_len;
+        if msg_end > buf.len() {
+            break;
+        }
+
+        let t0 = rdtsc_serialized();
+        let result = parse_one(&buf[msg_start..msg_end]);
+        let elapsed = rdtsc_serialized() - t0;
+        latency_buf.record(elapsed);
+
+        if let Some((msg, _)) = result {
+            msgs.push(msg);
+        }
+        pos = msg_end;
+    }
+    msgs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

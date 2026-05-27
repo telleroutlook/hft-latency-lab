@@ -242,3 +242,37 @@ pub fn parse_all(buf: &[u8]) -> Vec<Message> {
     }
     msgs
 }
+
+/// Parse all messages, recording per-message latency into `latency_buf`.
+/// Each sample is elapsed cycles for one `parse_one` call.
+pub fn parse_all_timed(
+    buf: &[u8],
+    latency_buf: &mut crate::latency_buf::LatencyBuffer,
+) -> Vec<Message> {
+    use crate::timer::rdtsc_serialized;
+
+    let estimated_count = buf.len() / 24;
+    let mut msgs = Vec::with_capacity(estimated_count);
+    let mut pos = 0;
+    let len = buf.len();
+
+    while pos + 2 <= len {
+        let msg_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
+        let msg_start = pos + 2;
+        let msg_end = msg_start + msg_len;
+        if msg_end > len {
+            break;
+        }
+
+        let t0 = rdtsc_serialized();
+        let result = parse_one(&buf[msg_start..msg_end]);
+        let elapsed = rdtsc_serialized() - t0;
+        latency_buf.record(elapsed);
+
+        if let Some((msg, _)) = result {
+            msgs.push(msg);
+        }
+        pos = msg_end;
+    }
+    msgs
+}

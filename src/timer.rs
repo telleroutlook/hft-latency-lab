@@ -17,12 +17,29 @@ pub fn rdtsc_serialized() -> u64 {
 }
 
 /// Calibrate TSC frequency: convert cycles to nanoseconds.
-/// Call once at startup. With boost disabled, 5600G TSC frequency is constant.
+/// Runs two 1-second passes and verifies consistency. Invariant TSC CPUs
+/// (Zen 3, Haswell+) should agree within 0.5%.
+// TODO: programmatic cpuid check for constant_tsc / nonstop_tsc flags.
+// Two-pass consistency is a valid indirect proxy, but an explicit flag check
+// would let us fail fast on non-invariant-TSC CPUs instead of just warning.
 pub fn calibrate_ghz() -> f64 {
+    let g1 = calibrate_ghz_pass(std::time::Duration::from_secs(1));
+    let g2 = calibrate_ghz_pass(std::time::Duration::from_secs(1));
+    let delta = (g1 - g2).abs() / g1;
+    if delta > 0.005 {
+        eprintln!(
+            "WARNING: TSC calibration inconsistent: pass1={g1:.3} pass2={g2:.3} delta={delta:.4}. \
+             Invariant TSC expected — check cpuid flags."
+        );
+    }
+    (g1 + g2) / 2.0
+}
+
+fn calibrate_ghz_pass(dur: std::time::Duration) -> f64 {
     use std::time::Instant;
     let start_tsc = rdtsc_serialized();
     let start = Instant::now();
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(dur);
     let cycles = rdtsc_serialized() - start_tsc;
     let secs = start.elapsed().as_secs_f64();
     (cycles as f64) / secs / 1e9
@@ -70,7 +87,7 @@ mod tests {
         // 5600G base clock is 3.9 GHz, allow wide margin for test stability
         assert!(
             ghz > 1.0 && ghz < 10.0,
-            "calibrated ghz = {ghz}, expected ~3.9"
+            "calibrated ghz = {ghz}, expected ~3.9 (allow wide range)"
         );
     }
 

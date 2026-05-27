@@ -15,6 +15,15 @@ use crate::timer;
 
 /// Simulated io_uring submission/completion cycle.
 /// Measures the overhead of a "submit → wait → process" round trip.
+/// Simulated io_uring submission/completion cycle.
+/// Measures the overhead of a "submit → wait → process" round trip.
+///
+/// HONEST DISCLAIMER: This simulation does NOT model SQPOLL amortization.
+/// Real io_uring's value proposition is that batch submission with SQPOLL mode
+/// does NOT increase syscall count — the kernel polls the SQ ring directly.
+/// Here each "batch" is just the loop body repeated, so linear scaling with
+/// batch size is expected and NOT representative of real io_uring behavior.
+/// The p50 numbers below are meaningless for predicting real io_uring performance.
 pub fn io_uring_simulated_bench(iters: usize, ghz: f64) {
     // Simulate the io_uring submission queue + completion queue cycle
     // by measuring round-trip latency of a simulated "submit + reap" cycle
@@ -50,9 +59,12 @@ pub fn io_uring_simulated_bench(iters: usize, ghz: f64) {
     }
 
     println!("\nio_uring Simulation Notes:");
+    println!("DISCLAIMER: This simulation does NOT model SQPOLL amortization.");
+    println!("The linear scaling with batch size is expected — each 'batch' is just");
+    println!("the same loop body repeated. Real io_uring with SQPOLL would show");
+    println!("near-constant latency regardless of batch size (no per-entry syscall).");
     println!("- Real io_uring would use SQPOLL for kernel-side polling");
     println!("- Fixed buffers enable zero-copy (no memcpy to SQ)");
-    println!("- Batch submission amortizes syscall overhead");
     println!("- For HFT: batch=1 with SQPOLL gives ~600ns kernel bypass on Zen 3");
 }
 
