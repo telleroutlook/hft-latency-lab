@@ -1,11 +1,11 @@
 pub mod spsc;
 
+use crate::histogram::LatencyReport;
+use crate::latency_buf::LatencyBuffer;
+use crate::orderbook::book::OrderBook;
 use crate::parser;
 use crate::parser::naive::Message;
-use crate::orderbook::book::OrderBook;
-use crate::latency_buf::LatencyBuffer;
 use crate::timer;
-use crate::histogram::LatencyReport;
 
 /// Run the full pipeline: parse → SPSC → order book → BBO callback.
 /// Returns per-stage latency samples for analysis.

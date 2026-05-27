@@ -11,6 +11,7 @@ pub struct OrderBook {
     /// O(1) lookup: order_id → arena index
     index: HashMap<u64, u32>,
     /// Callback invoked when BBO changes. (best_bid, best_ask)
+    #[allow(clippy::type_complexity)]
     bbo_callback: Option<Box<dyn FnMut(Option<u64>, Option<u64>)>>,
 }
 
@@ -37,7 +38,11 @@ impl OrderBook {
         let idx = self.arena.alloc(price, qty, order_id);
         self.index.insert(order_id, idx);
 
-        let old_best = if is_buy { self.best_bid() } else { self.best_ask() };
+        let old_best = if is_buy {
+            self.best_bid()
+        } else {
+            self.best_ask()
+        };
 
         if is_buy {
             self.insert_bid(idx);
@@ -45,7 +50,11 @@ impl OrderBook {
             self.insert_ask(idx);
         }
 
-        let new_best = if is_buy { self.best_bid() } else { self.best_ask() };
+        let new_best = if is_buy {
+            self.best_bid()
+        } else {
+            self.best_ask()
+        };
         if old_best != new_best {
             let bid = self.best_bid();
             let ask = self.best_ask();
@@ -59,13 +68,21 @@ impl OrderBook {
         if let Some(&idx) = self.index.get(&order_id) {
             let is_buy = self.is_on_bid_side(idx);
 
-            let old_best = if is_buy { self.best_bid() } else { self.best_ask() };
+            let old_best = if is_buy {
+                self.best_bid()
+            } else {
+                self.best_ask()
+            };
 
             self.unlink(idx);
             self.arena.free(idx);
             self.index.remove(&order_id);
 
-            let new_best = if is_buy { self.best_bid() } else { self.best_ask() };
+            let new_best = if is_buy {
+                self.best_bid()
+            } else {
+                self.best_ask()
+            };
             if old_best != new_best {
                 let bid = self.best_bid();
                 let ask = self.best_ask();
@@ -106,7 +123,9 @@ impl OrderBook {
         // Walk bid side to check if this index is there
         let mut curr = self.bids_head;
         while curr != SENTINEL {
-            if curr == idx { return true; }
+            if curr == idx {
+                return true;
+            }
             curr = self.arena.get(curr).next;
         }
         false
@@ -185,12 +204,16 @@ impl OrderBook {
     }
 
     pub fn best_bid(&self) -> Option<u64> {
-        if self.bids_head == SENTINEL { return None; }
+        if self.bids_head == SENTINEL {
+            return None;
+        }
         Some(self.arena.get(self.bids_head).price)
     }
 
     pub fn best_ask(&self) -> Option<u64> {
-        if self.asks_head == SENTINEL { return None; }
+        if self.asks_head == SENTINEL {
+            return None;
+        }
         Some(self.arena.get(self.asks_head).price)
     }
 
@@ -207,13 +230,17 @@ impl OrderBook {
 
     /// Total quantity at best bid.
     pub fn best_bid_qty(&self) -> u32 {
-        if self.bids_head == SENTINEL { return 0; }
+        if self.bids_head == SENTINEL {
+            return 0;
+        }
         self.arena.get(self.bids_head).qty
     }
 
     /// Total quantity at best ask.
     pub fn best_ask_qty(&self) -> u32 {
-        if self.asks_head == SENTINEL { return 0; }
+        if self.asks_head == SENTINEL {
+            return 0;
+        }
         self.arena.get(self.asks_head).qty
     }
 }

@@ -3,9 +3,9 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::data::gen;
     use crate::parser::naive;
     use crate::parser::optimized;
-    use crate::data::gen;
     use std::hint::black_box;
 
     fn build_test_stream() -> Vec<u8> {
@@ -15,7 +15,12 @@ mod tests {
             msgs.push(gen::build_system_event(code));
         }
         for i in 0u64..50 {
-            msgs.push(gen::build_add_order(i, i % 2 == 0, 100 + (i % 50) as u32, 1000000 + (i % 1000) as u32));
+            msgs.push(gen::build_add_order(
+                i,
+                i % 2 == 0,
+                100 + (i % 50) as u32,
+                1000000 + (i % 1000) as u32,
+            ));
         }
         for i in 0u64..20 {
             msgs.push(gen::build_order_executed(i, 50, i * 10));
@@ -27,7 +32,12 @@ mod tests {
             msgs.push(gen::build_order_delete(i));
         }
         for i in 0u64..10 {
-            msgs.push(gen::build_trade(i, 100, 1000000 + (i % 100) as u32, i * 100));
+            msgs.push(gen::build_trade(
+                i,
+                100,
+                1000000 + (i % 100) as u32,
+                i * 100,
+            ));
         }
 
         let mut buf = Vec::new();
@@ -47,11 +57,19 @@ mod tests {
         let naive_msgs = naive::parse_all(data);
         let opt_msgs = optimized::parse_all(data);
 
-        assert_eq!(naive_msgs.len(), opt_msgs.len(),
-            "message count mismatch: naive={} opt={}", naive_msgs.len(), opt_msgs.len());
+        assert_eq!(
+            naive_msgs.len(),
+            opt_msgs.len(),
+            "message count mismatch: naive={} opt={}",
+            naive_msgs.len(),
+            opt_msgs.len()
+        );
 
         for (i, (n, o)) in naive_msgs.iter().zip(opt_msgs.iter()).enumerate() {
-            assert_eq!(n, o, "message {i} mismatch:\n  naive: {n:?}\n  opt:   {o:?}");
+            assert_eq!(
+                n, o,
+                "message {i} mismatch:\n  naive: {n:?}\n  opt:   {o:?}"
+            );
         }
     }
 
@@ -162,7 +180,9 @@ mod tests {
         let seed = 12345u64;
         let mut state = seed;
         let mut rng = || {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             state
         };
 

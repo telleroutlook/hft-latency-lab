@@ -68,7 +68,10 @@ mod tests {
     fn calibration_is_reasonable() {
         let ghz = calibrate_ghz();
         // 5600G base clock is 3.9 GHz, allow wide margin for test stability
-        assert!(ghz > 1.0 && ghz < 10.0, "calibrated ghz = {ghz}, expected ~3.9");
+        assert!(
+            ghz > 1.0 && ghz < 10.0,
+            "calibrated ghz = {ghz}, expected ~3.9"
+        );
     }
 
     #[test]

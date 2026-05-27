@@ -5,11 +5,11 @@
 
 /// Software prefetch experiment — measure whether _mm_prefetch helps order book traversal.
 pub fn prefetch_experiment(iters: usize, ghz: f64) {
-    use crate::orderbook::book::OrderBook;
     use crate::data::gen;
-    use crate::timer;
-    use crate::latency_buf::LatencyBuffer;
     use crate::histogram::LatencyReport;
+    use crate::latency_buf::LatencyBuffer;
+    use crate::orderbook::book::OrderBook;
+    use crate::timer;
 
     let (stream, _) = gen::generate_paired_streams(iters, iters / 2, iters / 4);
     let msgs = crate::parser::optimized::parse_all(&stream);
@@ -50,7 +50,10 @@ pub fn prefetch_experiment(iters: usize, ghz: f64) {
         // Prefetch the message data
         #[cfg(target_arch = "x86_64")]
         unsafe {
-            std::arch::x86_64::_mm_prefetch(msg as *const _ as *const i8, std::arch::x86_64::_MM_HINT_T0);
+            std::arch::x86_64::_mm_prefetch(
+                msg as *const _ as *const i8,
+                std::arch::x86_64::_MM_HINT_T0,
+            );
         }
         let start = timer::rdtsc_serialized();
         match msg {
@@ -86,15 +89,17 @@ pub fn prefetch_experiment(iters: usize, ghz: f64) {
     } else {
         println!("Prefetch NEUTRAL: p50 {p50_ratio:.2}x, p99 {p99_ratio:.2}x (within noise)");
     }
-    println!("Note: this is an HONEST experiment — software prefetch often has no measurable effect.");
+    println!(
+        "Note: this is an HONEST experiment — software prefetch often has no measurable effect."
+    );
 }
 
 /// Branch prediction hint experiment — test likely/unlikely on msg_type switch.
 pub fn branch_hint_experiment(iters: usize, ghz: f64) {
     use crate::data::gen;
-    use crate::timer;
-    use crate::latency_buf::LatencyBuffer;
     use crate::histogram::LatencyReport;
+    use crate::latency_buf::LatencyBuffer;
+    use crate::timer;
 
     let (stream, _) = gen::generate_paired_streams(iters, iters / 2, iters / 4);
 
@@ -102,7 +107,9 @@ pub fn branch_hint_experiment(iters: usize, ghz: f64) {
     let mut buf_normal = LatencyBuffer::with_capacity(10);
     for _ in 0..10 {
         let start = timer::rdtsc_serialized();
-        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(&stream)));
+        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(
+            &stream,
+        )));
         let elapsed = timer::rdtsc_serialized() - start;
         buf_normal.record(elapsed);
     }
@@ -124,7 +131,9 @@ pub fn branch_hint_experiment(iters: usize, ghz: f64) {
     let mut buf_single = LatencyBuffer::with_capacity(10);
     for _ in 0..10 {
         let start = timer::rdtsc_serialized();
-        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(&single_type_stream)));
+        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(
+            &single_type_stream,
+        )));
         let elapsed = timer::rdtsc_serialized() - start;
         buf_single.record(elapsed);
     }
@@ -146,9 +155,9 @@ pub fn branch_hint_experiment(iters: usize, ghz: f64) {
 /// SIMD field extraction experiment — test AVX2 batch parsing vs scalar.
 pub fn simd_experiment(iters: usize, ghz: f64) {
     use crate::data::gen;
-    use crate::timer;
-    use crate::latency_buf::LatencyBuffer;
     use crate::histogram::LatencyReport;
+    use crate::latency_buf::LatencyBuffer;
+    use crate::timer;
 
     let (stream, _) = gen::generate_paired_streams(iters, iters / 2, iters / 4);
 
@@ -156,7 +165,9 @@ pub fn simd_experiment(iters: usize, ghz: f64) {
     let mut buf_scalar = LatencyBuffer::with_capacity(10);
     for _ in 0..10 {
         let start = timer::rdtsc_serialized();
-        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(&stream)));
+        std::hint::black_box(crate::parser::optimized::parse_all(std::hint::black_box(
+            &stream,
+        )));
         let elapsed = timer::rdtsc_serialized() - start;
         buf_scalar.record(elapsed);
     }
@@ -193,7 +204,9 @@ fn simd_scan_message_types(data: &[u8]) -> Vec<usize> {
         let msg_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
         let msg_start = pos + 2;
         let msg_end = msg_start + msg_len;
-        if msg_end > data.len() { break; }
+        if msg_end > data.len() {
+            break;
+        }
         positions.push(msg_start);
         pos = msg_end;
     }
@@ -211,14 +224,12 @@ fn simd_scan_message_types(data: &[u8]) -> Vec<usize> {
 
 /// BMI2 bit field extraction experiment.
 pub fn bmi2_experiment(iters: usize, ghz: f64) {
-    use crate::timer;
-    use crate::latency_buf::LatencyBuffer;
     use crate::histogram::LatencyReport;
+    use crate::latency_buf::LatencyBuffer;
+    use crate::timer;
 
     // Create test data: byte buffers where we need to extract fields
-    let test_data: Vec<[u8; 8]> = (0..iters as u64)
-        .map(|i| i.to_be_bytes())
-        .collect();
+    let test_data: Vec<[u8; 8]> = (0..iters as u64).map(|i| i.to_be_bytes()).collect();
 
     // Scalar extraction baseline
     let mut buf_scalar = LatencyBuffer::with_capacity(iters);
@@ -276,13 +287,11 @@ pub fn bmi2_experiment(iters: usize, ghz: f64) {
 }
 
 /// False sharing detection experiment.
-pub fn false_sharing_experiment(ghz: f64) {
+pub fn false_sharing_experiment(_ghz: f64) {
+    use crate::timer;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
     use std::thread;
-    use crate::timer;
-    use crate::latency_buf::LatencyBuffer;
-    use crate::histogram::LatencyReport;
 
     let iters = 1_000_000;
 
@@ -343,8 +352,14 @@ pub fn false_sharing_experiment(ghz: f64) {
     }
 
     let separated = Arc::new(Separated {
-        a: AlignedA { _pad0: [0; 56], a: AtomicU64::new(0) },
-        b: AlignedB { _pad1: [0; 56], b: AtomicU64::new(0) },
+        a: AlignedA {
+            _pad0: [0; 56],
+            a: AtomicU64::new(0),
+        },
+        b: AlignedB {
+            _pad1: [0; 56],
+            b: AtomicU64::new(0),
+        },
     });
 
     let s1 = Arc::clone(&separated);

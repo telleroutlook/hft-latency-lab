@@ -2,13 +2,11 @@
 //! In a real deployment, this would bind to a network interface.
 //! For benchmarking, we inject synthetic ITCH packets.
 
-use crate::parser;
-use crate::orderbook::book::OrderBook;
-use crate::data::gen;
-use crate::timer;
-use crate::latency_buf::LatencyBuffer;
 use crate::histogram::LatencyReport;
 use crate::net::packet_timer::PacketTimestamps;
+use crate::orderbook::book::OrderBook;
+use crate::parser;
+use crate::timer;
 
 /// Simulated packet receiver — injects ITCH messages and measures end-to-end latency.
 pub struct PacketReceiver {
@@ -42,7 +40,8 @@ impl PacketReceiver {
             // Feed to order book
             match msg {
                 parser::naive::Message::AddOrder(a) => {
-                    self.book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    self.book
+                        .add_order(a.order_ref, a.buy, a.price as u64, a.shares);
                 }
                 parser::naive::Message::OrderCancel(c) => {
                     self.book.cancel_order(c.order_ref);
@@ -68,13 +67,19 @@ impl PacketReceiver {
 
     /// Generate a latency report from recorded timestamps.
     pub fn latency_report(&self, ghz: f64) -> (LatencyReport, LatencyReport, LatencyReport) {
-        let total_cycles: Vec<u64> = self.timestamps.iter()
+        let total_cycles: Vec<u64> = self
+            .timestamps
+            .iter()
             .map(|ts| ts.total_latency_cycles())
             .collect();
-        let book_cycles: Vec<u64> = self.timestamps.iter()
+        let book_cycles: Vec<u64> = self
+            .timestamps
+            .iter()
             .map(|ts| ts.book_latency_cycles())
             .collect();
-        let strategy_cycles: Vec<u64> = self.timestamps.iter()
+        let strategy_cycles: Vec<u64> = self
+            .timestamps
+            .iter()
             .map(|ts| ts.strategy_latency_cycles())
             .collect();
 
@@ -93,6 +98,7 @@ impl PacketReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::gen;
     use crate::timer;
 
     #[test]

@@ -22,12 +22,25 @@ fn build_stream(n_add: usize, n_exec: usize, n_cancel: usize, mode: ShuffleMode)
 
     for i in 0..n_add {
         let is_buy = i % 2 == 0;
-        let price = if is_buy { 1_000_000 - (i % 1000) as u32 } else { 1_001_000 + (i % 1000) as u32 };
-        messages.push(build_add_order(i as u64, is_buy, 100 + (i % 50) as u32, price));
+        let price = if is_buy {
+            1_000_000 - (i % 1000) as u32
+        } else {
+            1_001_000 + (i % 1000) as u32
+        };
+        messages.push(build_add_order(
+            i as u64,
+            is_buy,
+            100 + (i % 50) as u32,
+            price,
+        ));
     }
 
     for i in 0..n_exec {
-        messages.push(build_order_executed(i as u64 % n_add.max(1) as u64, 50, i as u64));
+        messages.push(build_order_executed(
+            i as u64 % n_add.max(1) as u64,
+            50,
+            i as u64,
+        ));
     }
 
     for i in 0..n_cancel {
@@ -64,15 +77,15 @@ fn build_stream(n_add: usize, n_exec: usize, n_cancel: usize, mode: ShuffleMode)
 pub fn build_add_order(order_ref: u64, is_buy: bool, shares: u32, price: u32) -> Vec<u8> {
     let mut msg = Vec::with_capacity(36);
     msg.push(b'A');
-    msg.extend_from_slice(&1u16.to_be_bytes());       // stock locate
-    msg.extend_from_slice(&1u16.to_be_bytes());       // tracking number
+    msg.extend_from_slice(&1u16.to_be_bytes()); // stock locate
+    msg.extend_from_slice(&1u16.to_be_bytes()); // tracking number
     let ts: u64 = 36_000_000_000_000;
-    msg.extend_from_slice(&ts.to_be_bytes()[2..8]);   // 6-byte timestamp
-    msg.extend_from_slice(&order_ref.to_be_bytes());  // order ref (8 bytes)
-    msg.push(if is_buy { b'B' } else { b'S' });       // buy/sell
-    msg.extend_from_slice(&shares.to_be_bytes());     // shares (4 bytes)
-    msg.extend_from_slice(b"TEST    ");                // stock (8 bytes)
-    msg.extend_from_slice(&price.to_be_bytes());      // price (4 bytes)
+    msg.extend_from_slice(&ts.to_be_bytes()[2..8]); // 6-byte timestamp
+    msg.extend_from_slice(&order_ref.to_be_bytes()); // order ref (8 bytes)
+    msg.push(if is_buy { b'B' } else { b'S' }); // buy/sell
+    msg.extend_from_slice(&shares.to_be_bytes()); // shares (4 bytes)
+    msg.extend_from_slice(b"TEST    "); // stock (8 bytes)
+    msg.extend_from_slice(&price.to_be_bytes()); // price (4 bytes)
     msg
 }
 
@@ -158,28 +171,42 @@ pub fn generate_full_stream(n: usize) -> Vec<u8> {
     // Add orders
     for i in 0..n {
         let is_buy = i % 2 == 0;
-        let price = if is_buy { 1_000_000 - (i % 1000) as u32 } else { 1_001_000 + (i % 1000) as u32 };
-        messages.push(build_add_order(i as u64, is_buy, 100 + (i % 50) as u32, price));
+        let price = if is_buy {
+            1_000_000 - (i % 1000) as u32
+        } else {
+            1_001_000 + (i % 1000) as u32
+        };
+        messages.push(build_add_order(
+            i as u64,
+            is_buy,
+            100 + (i % 50) as u32,
+            price,
+        ));
     }
 
     // Order executed
-    for i in 0..n/2 {
+    for i in 0..n / 2 {
         messages.push(build_order_executed(i as u64, 50, i as u64));
     }
 
     // Order cancel
-    for i in 0..n/4 {
+    for i in 0..n / 4 {
         messages.push(build_order_cancel(i as u64, 25));
     }
 
     // Order delete
-    for i in 0..n/4 {
+    for i in 0..n / 4 {
         messages.push(build_order_delete(i as u64));
     }
 
     // Trades
-    for i in 0..n/4 {
-        messages.push(build_trade(i as u64, 100, 1000000 + (i % 100) as u32, i as u64));
+    for i in 0..n / 4 {
+        messages.push(build_trade(
+            i as u64,
+            100,
+            1000000 + (i % 100) as u32,
+            i as u64,
+        ));
     }
 
     let mut buf = Vec::new();

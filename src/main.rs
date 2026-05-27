@@ -1,18 +1,22 @@
-mod timer;
+#![allow(dead_code)]
+mod bench_env;
+mod data;
 mod histogram;
 mod latency_buf;
-mod bench_env;
-mod parser;
-mod orderbook;
-mod pipeline;
-mod data;
 mod microarch;
 mod net;
+mod orderbook;
+mod parser;
+mod pipeline;
+mod timer;
 
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "hft-latency-lab", about = "HFT latency engineering training ground")]
+#[command(
+    name = "hft-latency-lab",
+    about = "HFT latency engineering training ground"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -79,13 +83,16 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Bench { iters, shuffled, core: _ } => {
+        Commands::Bench {
+            iters,
+            shuffled,
+            core: _,
+        } => {
             let ghz = timer::calibrate_ghz();
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
-            let (natural, shuffled_data) = data::gen::generate_paired_streams(
-                iters / 2, iters / 4, iters / 8,
-            );
+            let (natural, shuffled_data) =
+                data::gen::generate_paired_streams(iters / 2, iters / 4, iters / 8);
             let stream = if shuffled { &shuffled_data } else { &natural };
 
             let mut buf = latency_buf::LatencyBuffer::with_capacity(iters);
@@ -124,7 +131,8 @@ fn main() {
             let ghz = timer::calibrate_ghz();
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
-            let (stream, _) = data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
+            let (stream, _) =
+                data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
 
             let mut buf = latency_buf::LatencyBuffer::with_capacity(messages);
             let mut book = orderbook::book::OrderBook::new(messages);
@@ -157,7 +165,11 @@ fn main() {
             let report = histogram::LatencyReport::from_cycles(buf.finish(), ghz);
             report.print("pipeline-e2e");
 
-            eprintln!("Order book: best_bid={:?} best_ask={:?}", book.best_bid(), book.best_ask());
+            eprintln!(
+                "Order book: best_bid={:?} best_ask={:?}",
+                book.best_bid(),
+                book.best_ask()
+            );
             if !before.isolation_clean(&after) {
                 eprintln!("WARNING: isolation broken during pipeline bench");
             }
@@ -205,7 +217,8 @@ fn main() {
             let ghz = timer::calibrate_ghz();
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
-            let (stream, _) = data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
+            let (stream, _) =
+                data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
 
             // Per-stage latency buffers
             let _parse_buf = latency_buf::LatencyBuffer::with_capacity(messages);
@@ -251,15 +264,29 @@ fn main() {
             // Reports
             println!("\n=== Pipeline Detailed Latency Report ===");
             println!("Total messages parsed: {}", msgs.len());
-            println!("Parse batch total: {:.2} ms", timer::cycles_to_ns(parse_elapsed, ghz) / 1e6);
-            println!("Parse per-msg avg: {:.2} ns", timer::cycles_to_ns(parse_elapsed, ghz) / msgs.len() as f64);
+            println!(
+                "Parse batch total: {:.2} ms",
+                timer::cycles_to_ns(parse_elapsed, ghz) / 1e6
+            );
+            println!(
+                "Parse per-msg avg: {:.2} ns",
+                timer::cycles_to_ns(parse_elapsed, ghz) / msgs.len() as f64
+            );
 
             let book_report = histogram::LatencyReport::from_cycles(book_buf.finish(), ghz);
             book_report.print("orderbook-per-msg");
 
             println!("\nOrder book state:");
-            println!("  best_bid={:?} best_ask={:?}", book.best_bid(), book.best_ask());
-            println!("  spread={:?} active_orders={}", book.spread(), book.order_count());
+            println!(
+                "  best_bid={:?} best_ask={:?}",
+                book.best_bid(),
+                book.best_ask()
+            );
+            println!(
+                "  spread={:?} active_orders={}",
+                book.spread(),
+                book.order_count()
+            );
 
             if !before.isolation_clean(&after) {
                 eprintln!("WARNING: isolation broken during pipeline bench");
@@ -277,11 +304,16 @@ fn main() {
                 Some("bmi2") => microarch::bmi2_experiment(iters, ghz),
                 Some("false-sharing") => microarch::false_sharing_experiment(ghz),
                 Some("all") | None => microarch::run_all(iters, ghz),
-                _ => eprintln!("Unknown experiment. Options: prefetch, branch, simd, bmi2, false-sharing, all"),
+                _ => eprintln!(
+                    "Unknown experiment. Options: prefetch, branch, simd, bmi2, false-sharing, all"
+                ),
             }
         }
 
-        Commands::NetBench { messages, syscall_overhead } => {
+        Commands::NetBench {
+            messages,
+            syscall_overhead,
+        } => {
             let ghz = timer::calibrate_ghz();
             eprintln!("TSC calibrated: {ghz:.3} GHz");
 
@@ -294,7 +326,8 @@ fn main() {
             net::io_uring_bench::io_uring_simulated_bench(messages, ghz);
 
             println!("\n=== Packet Receiver End-to-End ===");
-            let (stream, _) = data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
+            let (stream, _) =
+                data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
             let mut receiver = net::raw_socket::PacketReceiver::new(messages);
             receiver.process_stream(&stream);
 
@@ -303,8 +336,13 @@ fn main() {
             book_report.print("packet-book-only");
 
             let book = receiver.book();
-            println!("\nOrder book: best_bid={:?} best_ask={:?} spread={:?} orders={}",
-                book.best_bid(), book.best_ask(), book.spread(), book.order_count());
+            println!(
+                "\nOrder book: best_bid={:?} best_ask={:?} spread={:?} orders={}",
+                book.best_bid(),
+                book.best_ask(),
+                book.spread(),
+                book.order_count()
+            );
         }
     }
 }

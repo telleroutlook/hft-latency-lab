@@ -18,6 +18,12 @@ pub struct PacketTimestamps {
     pub strategy_callback: u64,
 }
 
+impl Default for PacketTimestamps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PacketTimestamps {
     pub fn new() -> Self {
         let now = timer::rdtsc_serialized();

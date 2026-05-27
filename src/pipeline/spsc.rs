@@ -2,8 +2,8 @@
 //! Zero-allocation, lock-free for the SPSC case.
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct SpscRing<T, const CAP: usize> {
     buf: UnsafeCell<[MaybeUninit<T>; CAP]>,

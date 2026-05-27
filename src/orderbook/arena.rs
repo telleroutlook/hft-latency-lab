@@ -8,8 +8,8 @@ pub const SENTINEL: u32 = 0xFFFF_FFFF;
 pub struct OrderNode {
     pub price: u64,
     pub qty: u32,
-    pub next: u32,   // index of next node, SENTINEL = null
-    pub prev: u32,   // index of prev node, SENTINEL = null
+    pub next: u32, // index of next node, SENTINEL = null
+    pub prev: u32, // index of prev node, SENTINEL = null
     pub order_id: u64,
 }
 
@@ -81,6 +81,10 @@ impl OrderArena {
 
     pub fn len(&self) -> usize {
         self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
     }
 }
 

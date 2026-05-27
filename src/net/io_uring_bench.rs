@@ -7,11 +7,11 @@
 //!   - SQPOLL mode for kernel-side polling
 //!   - Fixed buffers for zero-copy
 
-use crate::timer;
-use crate::latency_buf::LatencyBuffer;
-use crate::histogram::LatencyReport;
 use crate::data::gen;
+use crate::histogram::LatencyReport;
+use crate::latency_buf::LatencyBuffer;
 use crate::parser;
+use crate::timer;
 
 /// Simulated io_uring submission/completion cycle.
 /// Measures the overhead of a "submit → wait → process" round trip.

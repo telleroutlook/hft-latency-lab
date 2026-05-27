@@ -42,17 +42,35 @@ impl LatencyReport {
         );
     }
 
-    pub fn p50(&self) -> u64 { self.h.value_at_quantile(0.50) }
-    pub fn p99(&self) -> u64 { self.h.value_at_quantile(0.99) }
-    pub fn p999(&self) -> u64 { self.h.value_at_quantile(0.999) }
-    pub fn p9999(&self) -> u64 { self.h.value_at_quantile(0.9999) }
-    pub fn max(&self) -> u64 { self.h.max() }
-    pub fn count(&self) -> u64 { self.h.len() }
+    pub fn p50(&self) -> u64 {
+        self.h.value_at_quantile(0.50)
+    }
+    pub fn p99(&self) -> u64 {
+        self.h.value_at_quantile(0.99)
+    }
+    pub fn p999(&self) -> u64 {
+        self.h.value_at_quantile(0.999)
+    }
+    pub fn p9999(&self) -> u64 {
+        self.h.value_at_quantile(0.9999)
+    }
+    pub fn max(&self) -> u64 {
+        self.h.max()
+    }
+    pub fn count(&self) -> u64 {
+        self.h.len()
+    }
 
     pub fn to_markdown(&self, label: &str) -> String {
         format!(
             "| {} | {} | {} | {} | {} | {} | {} |",
-            label, self.p50(), self.p99(), self.p999(), self.p9999(), self.max(), self.count()
+            label,
+            self.p50(),
+            self.p99(),
+            self.p999(),
+            self.p9999(),
+            self.max(),
+            self.count()
         )
     }
 }
@@ -68,12 +86,18 @@ mod tests {
         let report = LatencyReport::from_ns(&samples);
 
         // p50 should be around 500 (allow HdrHistogram approximation)
-        assert!(report.p50() >= 450 && report.p50() <= 550,
-            "p50 = {}, expected ~500", report.p50());
+        assert!(
+            report.p50() >= 450 && report.p50() <= 550,
+            "p50 = {}, expected ~500",
+            report.p50()
+        );
 
         // p99 should be around 990
-        assert!(report.p99() >= 980 && report.p99() <= 999,
-            "p99 = {}, expected ~990", report.p99());
+        assert!(
+            report.p99() >= 980 && report.p99() <= 999,
+            "p99 = {}, expected ~990",
+            report.p99()
+        );
 
         // max should be 999
         assert_eq!(report.max(), 999);
@@ -87,8 +111,11 @@ mod tests {
         let samples = vec![3900u64; 100];
         let report = LatencyReport::from_cycles(&samples, ghz);
 
-        assert!(report.p50() >= 900 && report.p50() <= 1100,
-            "p50 = {}, expected ~1000 ns", report.p50());
+        assert!(
+            report.p50() >= 900 && report.p50() <= 1100,
+            "p50 = {}, expected ~1000 ns",
+            report.p50()
+        );
     }
 
     #[test]

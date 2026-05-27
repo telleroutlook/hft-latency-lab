@@ -156,7 +156,9 @@ fn read_u32(buf: &[u8]) -> u32 {
 
 #[inline]
 fn read_u64(buf: &[u8]) -> u64 {
-    u64::from_be_bytes([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]])
+    u64::from_be_bytes([
+        buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+    ])
 }
 
 /// Read 6-byte big-endian timestamp (nanoseconds since midnight).
@@ -164,8 +166,12 @@ fn read_u64(buf: &[u8]) -> u64 {
 fn read_timestamp(buf: &[u8]) -> u64 {
     // 6 bytes big-endian → u64
     let b = &buf[..6];
-    ((b[0] as u64) << 40) | ((b[1] as u64) << 32) | ((b[2] as u64) << 24)
-        | ((b[3] as u64) << 16) | ((b[4] as u64) << 8) | (b[5] as u64)
+    ((b[0] as u64) << 40)
+        | ((b[1] as u64) << 32)
+        | ((b[2] as u64) << 24)
+        | ((b[3] as u64) << 16)
+        | ((b[4] as u64) << 8)
+        | (b[5] as u64)
 }
 
 #[inline]
@@ -199,7 +205,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
     let msg_type = buf[0];
     match msg_type {
         b'S' => {
-            if buf.len() < MSG_SIZE_S { return None; }
+            if buf.len() < MSG_SIZE_S {
+                return None;
+            }
             let msg = SystemEvent {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -209,7 +217,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::SystemEvent(msg), MSG_SIZE_S))
         }
         b'L' => {
-            if buf.len() < MSG_SIZE_L { return None; }
+            if buf.len() < MSG_SIZE_L {
+                return None;
+            }
             let mut mpid = [b' '; 4];
             mpid.copy_from_slice(&buf[11..15]);
             let msg = MarketParticipantPosition {
@@ -225,7 +235,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::MarketParticipantPosition(msg), MSG_SIZE_L))
         }
         b'A' => {
-            if buf.len() < MSG_SIZE_A { return None; }
+            if buf.len() < MSG_SIZE_A {
+                return None;
+            }
             let msg = AddOrder {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -239,7 +251,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::AddOrder(msg), MSG_SIZE_A))
         }
         b'F' => {
-            if buf.len() < MSG_SIZE_F { return None; }
+            if buf.len() < MSG_SIZE_F {
+                return None;
+            }
             let mut attr = [b' '; 4];
             attr.copy_from_slice(&buf[36..40]);
             let msg = AddOrderMpid {
@@ -256,7 +270,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::AddOrderMpid(msg), MSG_SIZE_F))
         }
         b'E' => {
-            if buf.len() < MSG_SIZE_E { return None; }
+            if buf.len() < MSG_SIZE_E {
+                return None;
+            }
             let msg = OrderExecuted {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -268,7 +284,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderExecuted(msg), MSG_SIZE_E))
         }
         b'C' => {
-            if buf.len() < MSG_SIZE_C { return None; }
+            if buf.len() < MSG_SIZE_C {
+                return None;
+            }
             let msg = OrderExecutedWithPrice {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -282,7 +300,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderExecutedWithPrice(msg), MSG_SIZE_C))
         }
         b'X' => {
-            if buf.len() < MSG_SIZE_X { return None; }
+            if buf.len() < MSG_SIZE_X {
+                return None;
+            }
             let msg = OrderCancel {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -293,7 +313,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderCancel(msg), MSG_SIZE_X))
         }
         b'D' => {
-            if buf.len() < MSG_SIZE_D { return None; }
+            if buf.len() < MSG_SIZE_D {
+                return None;
+            }
             let msg = OrderDelete {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -303,7 +325,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderDelete(msg), MSG_SIZE_D))
         }
         b'P' => {
-            if buf.len() < MSG_SIZE_P { return None; }
+            if buf.len() < MSG_SIZE_P {
+                return None;
+            }
             let msg = Trade {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -318,7 +342,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::Trade(msg), MSG_SIZE_P))
         }
         b'Q' => {
-            if buf.len() < MSG_SIZE_Q { return None; }
+            if buf.len() < MSG_SIZE_Q {
+                return None;
+            }
             let msg = CrossTrade {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -332,7 +358,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::CrossTrade(msg), MSG_SIZE_Q))
         }
         b'B' => {
-            if buf.len() < MSG_SIZE_B { return None; }
+            if buf.len() < MSG_SIZE_B {
+                return None;
+            }
             let msg = BrokenTrade {
                 stock_locate: read_u16(&buf[1..3]),
                 tracking_number: read_u16(&buf[3..5]),
@@ -351,11 +379,15 @@ pub fn parse_all(buf: &[u8]) -> Vec<Message> {
     let mut msgs = Vec::new();
     let mut pos = 0;
     while pos < buf.len() {
-        if pos + 2 > buf.len() { break; }
+        if pos + 2 > buf.len() {
+            break;
+        }
         let msg_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
         let msg_start = pos + 2;
         let msg_end = msg_start + msg_len;
-        if msg_end > buf.len() { break; }
+        if msg_end > buf.len() {
+            break;
+        }
 
         if let Some((msg, _)) = parse_one(&buf[msg_start..msg_end]) {
             msgs.push(msg);
@@ -373,16 +405,16 @@ mod tests {
     fn parse_add_order_binary() {
         let mut msg = Vec::new();
         msg.push(b'A');
-        msg.extend_from_slice(&1u16.to_be_bytes());      // stock locate
-        msg.extend_from_slice(&1u16.to_be_bytes());      // tracking number
-        // 6-byte timestamp: 3600000000000 ns (= 10:00:00)
+        msg.extend_from_slice(&1u16.to_be_bytes()); // stock locate
+        msg.extend_from_slice(&1u16.to_be_bytes()); // tracking number
+                                                    // 6-byte timestamp: 3600000000000 ns (= 10:00:00)
         let ts: u64 = 36_000_000_000_000;
-        msg.extend_from_slice(&ts.to_be_bytes()[2..8]);  // take lower 6 bytes
-        msg.extend_from_slice(&42u64.to_be_bytes());     // order ref
-        msg.push(b'B');                                   // buy
-        msg.extend_from_slice(&100u32.to_be_bytes());    // shares
-        msg.extend_from_slice(b"TEST    ");               // stock (8 bytes)
-        msg.extend_from_slice(&50000u32.to_be_bytes());  // price = 5.0000
+        msg.extend_from_slice(&ts.to_be_bytes()[2..8]); // take lower 6 bytes
+        msg.extend_from_slice(&42u64.to_be_bytes()); // order ref
+        msg.push(b'B'); // buy
+        msg.extend_from_slice(&100u32.to_be_bytes()); // shares
+        msg.extend_from_slice(b"TEST    "); // stock (8 bytes)
+        msg.extend_from_slice(&50000u32.to_be_bytes()); // price = 5.0000
 
         let (parsed, consumed) = parse_one(&msg).unwrap();
         assert_eq!(consumed, 36);

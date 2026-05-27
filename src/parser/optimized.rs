@@ -20,14 +20,20 @@ fn read_u32(buf: &[u8]) -> u32 {
 
 #[inline(always)]
 fn read_u64(buf: &[u8]) -> u64 {
-    u64::from_be_bytes([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]])
+    u64::from_be_bytes([
+        buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+    ])
 }
 
 #[inline(always)]
 fn read_u48(buf: &[u8]) -> u64 {
     let b = buf;
-    ((b[0] as u64) << 40) | ((b[1] as u64) << 32) | ((b[2] as u64) << 24)
-        | ((b[3] as u64) << 16) | ((b[4] as u64) << 8) | (b[5] as u64)
+    ((b[0] as u64) << 40)
+        | ((b[1] as u64) << 32)
+        | ((b[2] as u64) << 24)
+        | ((b[3] as u64) << 16)
+        | ((b[4] as u64) << 8)
+        | (b[5] as u64)
 }
 
 #[inline(always)]
@@ -47,7 +53,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
 
     match msg_type {
         b'A' => {
-            if buf.len() < 36 { return None; }
+            if buf.len() < 36 {
+                return None;
+            }
             let msg = super::naive::AddOrder {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -61,7 +69,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::AddOrder(msg), 36))
         }
         b'F' => {
-            if buf.len() < 40 { return None; }
+            if buf.len() < 40 {
+                return None;
+            }
             let mut attr = [b' '; 4];
             attr.copy_from_slice(unsafe { buf.get_unchecked(36..40) });
             let msg = super::naive::AddOrderMpid {
@@ -78,7 +88,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::AddOrderMpid(msg), 40))
         }
         b'E' => {
-            if buf.len() < 31 { return None; }
+            if buf.len() < 31 {
+                return None;
+            }
             let msg = super::naive::OrderExecuted {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -90,7 +102,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderExecuted(msg), 31))
         }
         b'C' => {
-            if buf.len() < 36 { return None; }
+            if buf.len() < 36 {
+                return None;
+            }
             let msg = super::naive::OrderExecutedWithPrice {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -104,7 +118,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderExecutedWithPrice(msg), 36))
         }
         b'X' => {
-            if buf.len() < 23 { return None; }
+            if buf.len() < 23 {
+                return None;
+            }
             let msg = super::naive::OrderCancel {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -115,7 +131,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderCancel(msg), 23))
         }
         b'D' => {
-            if buf.len() < 19 { return None; }
+            if buf.len() < 19 {
+                return None;
+            }
             let msg = super::naive::OrderDelete {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -125,7 +143,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::OrderDelete(msg), 19))
         }
         b'S' => {
-            if buf.len() < 12 { return None; }
+            if buf.len() < 12 {
+                return None;
+            }
             let msg = super::naive::SystemEvent {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -135,7 +155,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::SystemEvent(msg), 12))
         }
         b'L' => {
-            if buf.len() < 26 { return None; }
+            if buf.len() < 26 {
+                return None;
+            }
             let mut mpid = [b' '; 4];
             mpid.copy_from_slice(unsafe { buf.get_unchecked(11..15) });
             let msg = super::naive::MarketParticipantPosition {
@@ -151,7 +173,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::MarketParticipantPosition(msg), 26))
         }
         b'P' => {
-            if buf.len() < 44 { return None; }
+            if buf.len() < 44 {
+                return None;
+            }
             let msg = super::naive::Trade {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -166,7 +190,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::Trade(msg), 44))
         }
         b'Q' => {
-            if buf.len() < 40 { return None; }
+            if buf.len() < 40 {
+                return None;
+            }
             let msg = super::naive::CrossTrade {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -180,7 +206,9 @@ pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
             Some((Message::CrossTrade(msg), 40))
         }
         b'B' => {
-            if buf.len() < 19 { return None; }
+            if buf.len() < 19 {
+                return None;
+            }
             let msg = super::naive::BrokenTrade {
                 stock_locate: read_u16(unsafe { buf.get_unchecked(1..3) }),
                 tracking_number: read_u16(unsafe { buf.get_unchecked(3..5) }),
@@ -204,7 +232,9 @@ pub fn parse_all(buf: &[u8]) -> Vec<Message> {
         let msg_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
         let msg_start = pos + 2;
         let msg_end = msg_start + msg_len;
-        if msg_end > len { break; }
+        if msg_end > len {
+            break;
+        }
         if let Some((msg, _)) = parse_one(&buf[msg_start..msg_end]) {
             msgs.push(msg);
         }
