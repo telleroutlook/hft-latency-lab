@@ -35,7 +35,7 @@
 | [Phase 2](phase2-itchy.md) 做透 itchy | Week 2–6 | merged PR + 性能复盘博客 | ✅ 完成 |
 | [Phase 3](phase3-pipeline.md) 系统管线 | Month 3–4 | 零分配 order book + SPSC + 端到端尾延迟 | ✅ 完成 |
 | [Phase 4](phase4-microarch.md) 微架构 | Month 5–6 | TMA 归因 + 受控实验（含诚实证伪） | ✅ 完成 |
-| [Phase 5](phase5-kernel.md) 系统层 | Month 7+ | AF_XDP/io_uring 或迁移到 DB kernel | 🔲 未开始 |
+| [Phase 5](phase5-kernel.md) 系统层 | Month 7+ | AF_XDP/io_uring 或迁移到 DB kernel | ✅ 完成 |
 
 ## 共用基础设施
 

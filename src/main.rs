@@ -7,6 +7,7 @@ mod orderbook;
 mod pipeline;
 mod data;
 mod microarch;
+mod net;
 
 use clap::Parser;
 
@@ -62,6 +63,15 @@ enum Commands {
 
         #[arg(long)]
         experiment: Option<String>,
+    },
+
+    /// Phase 5: Network layer benchmarks (io_uring sim, packet timing)
+    NetBench {
+        #[arg(short, long, default_value = "50000")]
+        messages: usize,
+
+        #[arg(long)]
+        syscall_overhead: bool,
     },
 }
 
@@ -269,6 +279,32 @@ fn main() {
                 Some("all") | None => microarch::run_all(iters, ghz),
                 _ => eprintln!("Unknown experiment. Options: prefetch, branch, simd, bmi2, false-sharing, all"),
             }
+        }
+
+        Commands::NetBench { messages, syscall_overhead } => {
+            let ghz = timer::calibrate_ghz();
+            eprintln!("TSC calibrated: {ghz:.3} GHz");
+
+            if syscall_overhead {
+                println!("\n=== Syscall Overhead Baseline ===");
+                net::io_uring_bench::syscall_overhead_bench(ghz);
+            }
+
+            println!("\n=== io_uring Simulation Benchmark ===");
+            net::io_uring_bench::io_uring_simulated_bench(messages, ghz);
+
+            println!("\n=== Packet Receiver End-to-End ===");
+            let (stream, _) = data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
+            let mut receiver = net::raw_socket::PacketReceiver::new(messages);
+            receiver.process_stream(&stream);
+
+            let (total_report, book_report, _strategy_report) = receiver.latency_report(ghz);
+            total_report.print("packet-e2e-total");
+            book_report.print("packet-book-only");
+
+            let book = receiver.book();
+            println!("\nOrder book: best_bid={:?} best_ask={:?} spread={:?} orders={}",
+                book.best_bid(), book.best_ask(), book.spread(), book.order_count());
         }
     }
 }
