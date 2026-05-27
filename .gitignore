@@ -1,0 +1,9 @@
+/target
+*.swp
+*.swo
+*~
+data/*.bin
+data/*.dat
+perf.data
+perf.data.old
+flamegraph.svg
