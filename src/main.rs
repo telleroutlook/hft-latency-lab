@@ -41,6 +41,12 @@ enum Commands {
         #[arg(short, long, default_value = "500000")]
         messages: usize,
     },
+
+    /// Compare naive vs optimized parser performance
+    Compare {
+        #[arg(short, long, default_value = "100000")]
+        iters: usize,
+    },
 }
 
 fn main() {
@@ -130,6 +136,44 @@ fn main() {
             if !before.isolation_clean(&after) {
                 eprintln!("WARNING: isolation broken during pipeline bench");
             }
+        }
+
+        Commands::Compare { iters } => {
+            let ghz = timer::calibrate_ghz();
+            eprintln!("TSC calibrated: {ghz:.3} GHz");
+
+            let (natural, _) = data::gen::generate_paired_streams(iters, iters / 2, iters / 4);
+
+            // Naive parser benchmark
+            let mut buf_naive = latency_buf::LatencyBuffer::with_capacity(iters);
+            for _ in 0..iters {
+                let start = timer::rdtsc_serialized();
+                std::hint::black_box(parser::naive::parse_all(std::hint::black_box(&natural)));
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_naive.record(elapsed);
+            }
+            let naive_report = histogram::LatencyReport::from_cycles(buf_naive.finish(), ghz);
+            naive_report.print("naive");
+
+            // Optimized parser benchmark
+            let mut buf_opt = latency_buf::LatencyBuffer::with_capacity(iters);
+            for _ in 0..iters {
+                let start = timer::rdtsc_serialized();
+                std::hint::black_box(parser::optimized::parse_all(std::hint::black_box(&natural)));
+                let elapsed = timer::rdtsc_serialized() - start;
+                buf_opt.record(elapsed);
+            }
+            let opt_report = histogram::LatencyReport::from_cycles(buf_opt.finish(), ghz);
+            opt_report.print("optimized");
+
+            // Comparison
+            let speedup_p50 = naive_report.p50() as f64 / opt_report.p50() as f64;
+            let speedup_p99 = naive_report.p99() as f64 / opt_report.p99() as f64;
+            let speedup_p999 = naive_report.p999() as f64 / opt_report.p999() as f64;
+            println!("\n=== Comparison ===");
+            println!("p50   speedup: {speedup_p50:.2}x");
+            println!("p99   speedup: {speedup_p99:.2}x");
+            println!("p99.9 speedup: {speedup_p999:.2}x");
         }
     }
 }

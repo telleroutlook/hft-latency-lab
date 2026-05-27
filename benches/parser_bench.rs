@@ -27,6 +27,14 @@ fn bench_parse_all(c: &mut Criterion) {
         })
     });
 
+    // Full stream with all message types
+    let full_stream = hft_latency_lab::data::gen::generate_full_stream(5000);
+    group.bench_function("optimized_full_stream", |b| {
+        b.iter(|| {
+            black_box(hft_latency_lab::parser::optimized::parse_all(black_box(&full_stream)));
+        })
+    });
+
     group.finish();
 }
 
