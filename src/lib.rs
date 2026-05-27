@@ -6,3 +6,4 @@ pub mod parser;
 pub mod orderbook;
 pub mod pipeline;
 pub mod data;
+pub mod microarch;

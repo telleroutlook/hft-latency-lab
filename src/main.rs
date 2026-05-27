@@ -6,6 +6,7 @@ mod parser;
 mod orderbook;
 mod pipeline;
 mod data;
+mod microarch;
 
 use clap::Parser;
 
@@ -52,6 +53,15 @@ enum Commands {
     PipelineDetailed {
         #[arg(short, long, default_value = "200000")]
         messages: usize,
+    },
+
+    /// Run microarchitecture experiments (TMA, cache, branch, SIMD)
+    Microarch {
+        #[arg(short, long, default_value = "100000")]
+        iters: usize,
+
+        #[arg(long)]
+        experiment: Option<String>,
     },
 }
 
@@ -243,6 +253,21 @@ fn main() {
 
             if !before.isolation_clean(&after) {
                 eprintln!("WARNING: isolation broken during pipeline bench");
+            }
+        }
+
+        Commands::Microarch { iters, experiment } => {
+            let ghz = timer::calibrate_ghz();
+            eprintln!("TSC calibrated: {ghz:.3} GHz");
+
+            match experiment.as_deref() {
+                Some("prefetch") => microarch::prefetch_experiment(iters, ghz),
+                Some("branch") => microarch::branch_hint_experiment(iters, ghz),
+                Some("simd") => microarch::simd_experiment(iters, ghz),
+                Some("bmi2") => microarch::bmi2_experiment(iters, ghz),
+                Some("false-sharing") => microarch::false_sharing_experiment(ghz),
+                Some("all") | None => microarch::run_all(iters, ghz),
+                _ => eprintln!("Unknown experiment. Options: prefetch, branch, simd, bmi2, false-sharing, all"),
             }
         }
     }
