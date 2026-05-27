@@ -47,6 +47,12 @@ enum Commands {
         #[arg(short, long, default_value = "100000")]
         iters: usize,
     },
+
+    /// Run end-to-end pipeline with per-stage latency breakdown
+    PipelineDetailed {
+        #[arg(short, long, default_value = "200000")]
+        messages: usize,
+    },
 }
 
 fn main() {
@@ -116,11 +122,10 @@ fn main() {
                         book.cancel_order(c.order_ref);
                     }
                     parser::naive::Message::OrderDelete(d) => {
-                        book.cancel_order(d.order_ref);
+                        book.delete_order(d.order_ref);
                     }
                     parser::naive::Message::OrderExecuted(e) => {
-                        // Partial execution reduces shares — treat as partial cancel for now
-                        book.cancel_order(e.order_ref);
+                        book.execute_order(e.order_ref, e.executed_shares);
                     }
                     _ => {}
                 }
@@ -174,6 +179,71 @@ fn main() {
             println!("p50   speedup: {speedup_p50:.2}x");
             println!("p99   speedup: {speedup_p99:.2}x");
             println!("p99.9 speedup: {speedup_p999:.2}x");
+        }
+
+        Commands::PipelineDetailed { messages } => {
+            let ghz = timer::calibrate_ghz();
+            eprintln!("TSC calibrated: {ghz:.3} GHz");
+
+            let (stream, _) = data::gen::generate_paired_streams(messages, messages / 2, messages / 4);
+
+            // Per-stage latency buffers
+            let _parse_buf = latency_buf::LatencyBuffer::with_capacity(messages);
+            let mut book_buf = latency_buf::LatencyBuffer::with_capacity(messages);
+
+            let mut book = orderbook::book::OrderBook::new(messages);
+            let _bbo_count = 0u64;
+            book.set_bbo_callback(Box::new(|_bid, _ask| {
+                // Minimal callback — just counting
+            }));
+
+            let before = bench_env::EnvSnapshot::take();
+
+            // Stage 1: Parse all messages (batch)
+            let parse_start = timer::rdtsc_serialized();
+            let msgs = parser::optimized::parse_all(&stream);
+            let parse_elapsed = timer::rdtsc_serialized() - parse_start;
+
+            // Stage 2: Feed to order book one-by-one with per-message timing
+            for msg in &msgs {
+                let msg_start = timer::rdtsc_serialized();
+                match msg {
+                    parser::naive::Message::AddOrder(a) => {
+                        book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
+                    }
+                    parser::naive::Message::OrderCancel(c) => {
+                        book.cancel_order(c.order_ref);
+                    }
+                    parser::naive::Message::OrderDelete(d) => {
+                        book.delete_order(d.order_ref);
+                    }
+                    parser::naive::Message::OrderExecuted(e) => {
+                        book.execute_order(e.order_ref, e.executed_shares);
+                    }
+                    _ => {}
+                }
+                let msg_elapsed = timer::rdtsc_serialized() - msg_start;
+                book_buf.record(msg_elapsed);
+            }
+
+            let after = bench_env::EnvSnapshot::take();
+
+            // Reports
+            println!("\n=== Pipeline Detailed Latency Report ===");
+            println!("Total messages parsed: {}", msgs.len());
+            println!("Parse batch total: {:.2} ms", timer::cycles_to_ns(parse_elapsed, ghz) / 1e6);
+            println!("Parse per-msg avg: {:.2} ns", timer::cycles_to_ns(parse_elapsed, ghz) / msgs.len() as f64);
+
+            let book_report = histogram::LatencyReport::from_cycles(book_buf.finish(), ghz);
+            book_report.print("orderbook-per-msg");
+
+            println!("\nOrder book state:");
+            println!("  best_bid={:?} best_ask={:?}", book.best_bid(), book.best_ask());
+            println!("  spread={:?} active_orders={}", book.spread(), book.order_count());
+
+            if !before.isolation_clean(&after) {
+                eprintln!("WARNING: isolation broken during pipeline bench");
+            }
         }
     }
 }

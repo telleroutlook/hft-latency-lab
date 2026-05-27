@@ -21,7 +21,9 @@ fn build_stream(n_add: usize, n_exec: usize, n_cancel: usize, mode: ShuffleMode)
     let mut messages: Vec<Vec<u8>> = Vec::new();
 
     for i in 0..n_add {
-        messages.push(build_add_order(i as u64, i % 2 == 0, 100 + (i % 50) as u32, 1000000 + (i % 1000) as u32));
+        let is_buy = i % 2 == 0;
+        let price = if is_buy { 1_000_000 - (i % 1000) as u32 } else { 1_001_000 + (i % 1000) as u32 };
+        messages.push(build_add_order(i as u64, is_buy, 100 + (i % 50) as u32, price));
     }
 
     for i in 0..n_exec {
@@ -155,7 +157,9 @@ pub fn generate_full_stream(n: usize) -> Vec<u8> {
 
     // Add orders
     for i in 0..n {
-        messages.push(build_add_order(i as u64, i % 2 == 0, 100 + (i % 50) as u32, 1000000 + (i % 1000) as u32));
+        let is_buy = i % 2 == 0;
+        let price = if is_buy { 1_000_000 - (i % 1000) as u32 } else { 1_001_000 + (i % 1000) as u32 };
+        messages.push(build_add_order(i as u64, is_buy, 100 + (i % 50) as u32, price));
     }
 
     // Order executed
