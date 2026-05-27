@@ -1,7 +1,6 @@
 //! Benchmark environment validation — detect if the machine is in a clean state for measurement.
 
 /// Read voluntary and nonvoluntary context switches from /proc/self/status.
-/// Call before and after benchmark; if nonvoluntary increased, isolation is broken.
 pub fn read_ctxt_switches() -> (u64, u64) {
     let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let (mut vol, mut nonvol) = (0u64, 0u64);
@@ -39,7 +38,22 @@ mod tests {
     #[test]
     fn can_read_ctxt_switches() {
         let (vol, nonvol) = read_ctxt_switches();
-        // Some voluntary switches always happen (e.g. during thread creation)
         assert!(vol > 0 || nonvol > 0, "should have some context switches");
+    }
+
+    #[test]
+    fn snapshot_pair_consistent() {
+        let before = EnvSnapshot::take();
+        // Do some work to potentially trigger context switches
+        let mut sum = 0u64;
+        for i in 0..1000 {
+            sum += i;
+        }
+        std::hint::black_box(sum);
+        let after = EnvSnapshot::take();
+
+        // After should be >= before
+        assert!(after.vol >= before.vol);
+        assert!(after.nonvol >= before.nonvol);
     }
 }

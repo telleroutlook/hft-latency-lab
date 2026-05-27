@@ -5,11 +5,10 @@ use super::naive::Message;
 
 /// Parse a single ITCH message. Initially identical to naive — optimizations go here.
 /// Every optimization must:
-///   1. Be preceded by perf counter evidence (§H of measurement checklist)
-///   2. Pass differential test against naive (§G)
-///   3. Show p99.9 improvement in the latency report (§I)
+///   1. Be preceded by perf counter evidence
+///   2. Pass differential test against naive
+///   3. Show p99.9 improvement in the latency report
 pub fn parse_one(buf: &[u8]) -> Option<(Message, usize)> {
-    // Phase 1: identical to naive. Optimizations will be applied one at a time.
     super::naive::parse_one(buf)
 }
 

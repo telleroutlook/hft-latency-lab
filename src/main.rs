@@ -12,7 +12,6 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(name = "hft-latency-lab", about = "HFT latency engineering training ground")]
 struct Cli {
-    /// Subcommand
     #[command(subcommand)]
     command: Commands,
 }
@@ -21,15 +20,12 @@ struct Cli {
 enum Commands {
     /// Run ITCH parser benchmark with latency distribution report
     Bench {
-        /// Number of iterations
         #[arg(short, long, default_value = "1000000")]
         iters: usize,
 
-        /// Use shuffled data (vs natural order)
         #[arg(long)]
         shuffled: bool,
 
-        /// Pin to specific CPU core
         #[arg(long, default_value = "2")]
         core: usize,
     },
@@ -42,7 +38,6 @@ enum Commands {
 
     /// Run end-to-end pipeline benchmark (parser → SPSC → order book)
     Pipeline {
-        /// Number of messages
         #[arg(short, long, default_value = "500000")]
         messages: usize,
     },
@@ -84,7 +79,6 @@ fn main() {
         }
 
         Commands::DiffTest => {
-            // The actual differential tests live in parser::diff — this runs them
             eprintln!("Run: cargo test -- parser::diff");
         }
 
@@ -105,7 +99,6 @@ fn main() {
 
             let before = bench_env::EnvSnapshot::take();
 
-            // End-to-end: parse → feed to order book
             let msgs = parser::optimized::parse_all(&stream);
             for msg in &msgs {
                 let start = timer::rdtsc_serialized();
@@ -118,6 +111,10 @@ fn main() {
                     }
                     parser::naive::Message::OrderDelete(d) => {
                         book.cancel_order(d.order_ref);
+                    }
+                    parser::naive::Message::OrderExecuted(e) => {
+                        // Partial execution reduces shares — treat as partial cancel for now
+                        book.cancel_order(e.order_ref);
                     }
                     _ => {}
                 }
