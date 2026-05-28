@@ -3,6 +3,7 @@ name = "hft-latency-lab"
 version = "0.1.0"
 edition = "2021"
 description = "HFT latency engineering training ground: ITCH parsing, order book, microarchitecture optimization"
+license = "Apache-2.0"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

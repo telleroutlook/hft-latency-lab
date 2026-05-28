@@ -114,4 +114,4 @@ The project is designed to be honest about what this hardware can and cannot mea
 
 ## License
 
-MIT
+Apache-2.0
