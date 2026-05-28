@@ -7,3 +7,6 @@ data/*.dat
 perf.data
 perf.data.old
 flamegraph.svg
+
+# macOS Apple Double files
+._*
