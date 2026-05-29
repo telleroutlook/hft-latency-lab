@@ -187,9 +187,10 @@ impl SignalGenerator {
         );
 
         match sig {
-            Some(s) if s.adf_pvalue <= config.adf_threshold
-                && s.half_life >= config.half_life_bounds.0
-                && s.half_life <= config.half_life_bounds.1 =>
+            Some(s)
+                if s.adf_pvalue <= config.adf_threshold
+                    && s.half_life >= config.half_life_bounds.0
+                    && s.half_life <= config.half_life_bounds.1 =>
             {
                 self.params = CointParams {
                     beta: s.beta,
@@ -223,9 +224,7 @@ impl SignalGenerator {
         if self.params.valid {
             // Use cached beta/alpha from last retest for consistency
             let spread: Vec<f64> = (start..tracker.len())
-                .map(|i| {
-                    tracker.prices_a()[i].ln() - self.params.beta * tracker.prices_b()[i].ln()
-                })
+                .map(|i| tracker.prices_a()[i].ln() - self.params.beta * tracker.prices_b()[i].ln())
                 .collect();
             self.last_z = cointegration::z_score(&spread);
         } else {
@@ -333,7 +332,10 @@ impl StrategyPipeline {
     pub fn new(config: StrategyConfig) -> Self {
         let capacity = config.book_capacity;
         let lookback = config.lookback;
-        let ekf = config.ekf_config.as_ref().map(|c| EKFSignalFuser::new(c.clone()));
+        let ekf = config
+            .ekf_config
+            .as_ref()
+            .map(|c| EKFSignalFuser::new(c.clone()));
         Self {
             book_a: OrderBook::new(capacity),
             book_b: OrderBook::new(capacity),
@@ -433,7 +435,11 @@ impl StrategyPipeline {
 
     /// Apply an order message to the correct book.
     fn apply_to_book(&mut self, msg: &Message, is_a: bool) {
-        let book = if is_a { &mut self.book_a } else { &mut self.book_b };
+        let book = if is_a {
+            &mut self.book_a
+        } else {
+            &mut self.book_b
+        };
         match msg {
             Message::AddOrder(a) => {
                 book.add_order(a.order_ref, a.buy, a.price as u64, a.shares);
@@ -586,7 +592,13 @@ mod tests {
         }
     }
 
-    fn make_add_order(stock: &[u8; 8], order_ref: u64, buy: bool, price: u32, shares: u32) -> Message {
+    fn make_add_order(
+        stock: &[u8; 8],
+        order_ref: u64,
+        buy: bool,
+        price: u32,
+        shares: u32,
+    ) -> Message {
         Message::AddOrder(AddOrder {
             stock_locate: 1,
             tracking_number: 1,
@@ -678,10 +690,34 @@ mod tests {
 
         // Feed two symbols until we have a spread, but not enough for cointegration.
         for i in 0..5u32 {
-            let msg_a = make_add_order(&pipe.config().symbol_a, 100 + i as u64, true, 10000 + i * 100, 10);
-            let msg_a_sell = make_add_order(&pipe.config().symbol_a, 200 + i as u64, false, 10100 + i * 100, 10);
-            let msg_b = make_add_order(&pipe.config().symbol_b, 300 + i as u64, true, 5000 + i * 50, 10);
-            let msg_b_sell = make_add_order(&pipe.config().symbol_b, 400 + i as u64, false, 5100 + i * 50, 10);
+            let msg_a = make_add_order(
+                &pipe.config().symbol_a,
+                100 + i as u64,
+                true,
+                10000 + i * 100,
+                10,
+            );
+            let msg_a_sell = make_add_order(
+                &pipe.config().symbol_a,
+                200 + i as u64,
+                false,
+                10100 + i * 100,
+                10,
+            );
+            let msg_b = make_add_order(
+                &pipe.config().symbol_b,
+                300 + i as u64,
+                true,
+                5000 + i * 50,
+                10,
+            );
+            let msg_b_sell = make_add_order(
+                &pipe.config().symbol_b,
+                400 + i as u64,
+                false,
+                5100 + i * 50,
+                10,
+            );
             pipe.process_message(&msg_a);
             pipe.process_message(&msg_a_sell);
             pipe.process_message(&msg_b);
@@ -789,8 +825,14 @@ mod tests {
     fn trade_decision_equality() {
         assert_eq!(TradeDecision::Hold, TradeDecision::Hold);
         assert_eq!(TradeDecision::Exit, TradeDecision::Exit);
-        assert_eq!(TradeDecision::Enter { long: true }, TradeDecision::Enter { long: true });
-        assert_ne!(TradeDecision::Enter { long: true }, TradeDecision::Enter { long: false });
+        assert_eq!(
+            TradeDecision::Enter { long: true },
+            TradeDecision::Enter { long: true }
+        );
+        assert_ne!(
+            TradeDecision::Enter { long: true },
+            TradeDecision::Enter { long: false }
+        );
     }
 
     #[test]

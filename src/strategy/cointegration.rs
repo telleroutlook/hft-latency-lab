@@ -357,7 +357,10 @@ mod tests {
             .collect();
         let p = adf_test(&spread);
         // Strongly mean-reverting should get a low p-value
-        assert!(p <= 0.05, "ADF p-value should be <= 0.05 for mean-reverting series, got {p}");
+        assert!(
+            p <= 0.05,
+            "ADF p-value should be <= 0.05 for mean-reverting series, got {p}"
+        );
     }
 
     #[test]
@@ -412,7 +415,10 @@ mod tests {
             .collect();
 
         let result = evaluate_coint_pair(&prices_a, &prices_b, 200);
-        assert!(result.is_some(), "Cointegrated pair should produce a signal");
+        assert!(
+            result.is_some(),
+            "Cointegrated pair should produce a signal"
+        );
         let sig = result.unwrap();
         assert!(sig.adf_pvalue <= 0.05);
         assert!(sig.half_life.is_finite());

@@ -275,8 +275,7 @@ impl ExecutionPlanner {
 
                 if tentative_g < g_score[next_level][new_step] - 1e-12 {
                     g_score[next_level][new_step] = tentative_g;
-                    came_from[next_level][new_step] =
-                        Some((level, step, actual_filled));
+                    came_from[next_level][new_step] = Some((level, step, actual_filled));
                     open.push(ExecutionNode {
                         price_level: next_level,
                         shares_remaining: new_remaining,
@@ -307,8 +306,14 @@ impl ExecutionPlanner {
         }
         // Best price from this level onward.
         let best_price = match self.side {
-            Side::Buy => prices[start_level..].iter().cloned().fold(f64::INFINITY, f64::min),
-            Side::Sell => prices[start_level..].iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            Side::Buy => prices[start_level..]
+                .iter()
+                .cloned()
+                .fold(f64::INFINITY, f64::min),
+            Side::Sell => prices[start_level..]
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max),
         };
         if !best_price.is_finite() {
             return f64::INFINITY;
@@ -344,8 +349,10 @@ impl ExecutionPlanner {
         let mut level = goal_level;
         let mut step = goal_step;
 
-        while let Some(&(prev_level, prev_step, shares_filled)) =
-            came_from.get(level).and_then(|row| row.get(step)).and_then(|o| o.as_ref())
+        while let Some(&(prev_level, prev_step, shares_filled)) = came_from
+            .get(level)
+            .and_then(|row| row.get(step))
+            .and_then(|o| o.as_ref())
         {
             if shares_filled > 0.0 {
                 // The fill happened at `prev_level` (the level before we moved forward).
@@ -438,12 +445,7 @@ mod tests {
 
     #[test]
     fn single_level_book_all_at_one_level() {
-        let book = make_book(
-            vec![99.0],
-            vec![500.0],
-            vec![101.0],
-            vec![500.0],
-        );
+        let book = make_book(vec![99.0], vec![500.0], vec![101.0], vec![500.0]);
         let planner = ExecutionPlanner::new(&book, 100.0, Side::Buy);
         let plan = planner.plan();
 
@@ -471,11 +473,17 @@ mod tests {
 
         // Total shares should approximately equal target.
         let total_shares: f64 = plan.iter().map(|&(_, s)| s).sum();
-        assert!((total_shares - 100.0).abs() < 5.0, "total_shares = {total_shares}");
+        assert!(
+            (total_shares - 100.0).abs() < 5.0,
+            "total_shares = {total_shares}"
+        );
 
         // Should use multiple levels.
         let levels_used: Vec<usize> = plan.iter().map(|&(l, _)| l).collect();
-        assert!(levels_used.len() >= 2, "should split across levels, got {levels_used:?}");
+        assert!(
+            levels_used.len() >= 2,
+            "should split across levels, got {levels_used:?}"
+        );
 
         // Market impact should be finite.
         let impact = market_impact(&book, &plan, Side::Buy);
@@ -539,12 +547,7 @@ mod tests {
 
     #[test]
     fn insufficient_liquidity_returns_empty() {
-        let book = make_book(
-            vec![99.0],
-            vec![10.0],
-            vec![101.0],
-            vec![5.0],
-        );
+        let book = make_book(vec![99.0], vec![10.0], vec![101.0], vec![5.0]);
         // Ask for 100 shares but only 5 available on the ask side.
         let planner = ExecutionPlanner::new(&book, 100.0, Side::Buy);
         let plan = planner.plan();
@@ -596,12 +599,7 @@ mod tests {
 
     #[test]
     fn zero_target_shares() {
-        let book = make_book(
-            vec![99.0],
-            vec![500.0],
-            vec![101.0],
-            vec![500.0],
-        );
+        let book = make_book(vec![99.0], vec![500.0], vec![101.0], vec![500.0]);
         let planner = ExecutionPlanner::new(&book, 0.0, Side::Buy);
         let plan = planner.plan();
         assert!(plan.is_empty());

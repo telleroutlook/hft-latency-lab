@@ -155,14 +155,8 @@ where
 /// For each symbol index set in `symbol_filter`, intersect with the per-symbol
 /// bitmap and collect surviving message indices. The batch popcount lets us
 /// skip symbols with zero intersection cheaply.
-pub fn filter_multi_symbol(
-    symbol_filter: &Bitmap64,
-    per_symbol_bitmaps: &[Bitmap64],
-) -> Bitmap64 {
-    let n_bits = per_symbol_bitmaps
-        .first()
-        .map(|b| b.n_bits())
-        .unwrap_or(0);
+pub fn filter_multi_symbol(symbol_filter: &Bitmap64, per_symbol_bitmaps: &[Bitmap64]) -> Bitmap64 {
+    let n_bits = per_symbol_bitmaps.first().map(|b| b.n_bits()).unwrap_or(0);
     let mut result = Bitmap64::new(n_bits);
 
     for sym_idx in symbol_filter.iter_set_bits() {
