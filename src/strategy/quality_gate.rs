@@ -29,12 +29,15 @@ impl Default for SignalQuality {
     }
 }
 
-/// Weights for quality dimensions.
+/// Weights for quality dimensions with adaptive learning.
+#[derive(Debug, Clone)]
 pub struct QualityWeights {
     pub gain: f64,
     pub freshness: f64,
     pub spread: f64,
     pub adf: f64,
+    learning_rate: f64,
+    profitability: [f64; 4],
 }
 
 impl Default for QualityWeights {
@@ -44,11 +47,61 @@ impl Default for QualityWeights {
             freshness: 0.2,
             spread: 0.2,
             adf: 0.3,
+            learning_rate: 0.05,
+            profitability: [0.0; 4],
+        }
+    }
+}
+
+impl QualityWeights {
+    /// Create weights with a custom EMA learning rate.
+    pub fn with_learning_rate(mut self, lr: f64) -> Self {
+        self.learning_rate = lr;
+        self
+    }
+
+    /// Update per-dimension profitability tracking and adjust weights.
+    ///
+    /// If a dimension's value was high AND the trade was profitable, that
+    /// dimension's weight increases. If high but losing, the weight decreases.
+    /// EMA smoothing prevents oscillation. Weights are normalized to sum to 1.0.
+    pub fn update_weights(&mut self, quality: &SignalQuality, trade_profitable: bool) {
+        let dims = [
+            quality.ekf_gain,
+            quality.freshness,
+            quality.spread_health,
+            quality.adf_strength,
+        ];
+        let reward = if trade_profitable { 1.0 } else { -1.0 };
+
+        for (i, &dim_val) in dims.iter().enumerate() {
+            let signal = dim_val * reward;
+            self.profitability[i] =
+                self.profitability[i] * (1.0 - self.learning_rate) + signal * self.learning_rate;
+        }
+
+        let weights = &mut [
+            &mut self.gain,
+            &mut self.freshness,
+            &mut self.spread,
+            &mut self.adf,
+        ];
+        for (i, w) in weights.iter_mut().enumerate() {
+            **w = (**w + self.learning_rate * self.profitability[i]).max(0.01);
+        }
+
+        let sum = self.gain + self.freshness + self.spread + self.adf;
+        if sum > 0.0 {
+            self.gain /= sum;
+            self.freshness /= sum;
+            self.spread /= sum;
+            self.adf /= sum;
         }
     }
 }
 
 /// Evaluates signal quality and gates trade execution.
+#[derive(Debug, Clone)]
 pub struct QualityGate {
     pub weights: QualityWeights,
     pub threshold: f64,
@@ -190,5 +243,56 @@ mod tests {
         let score = gate.evaluate(&quality);
         assert!((score - 0.6).abs() < 1e-10);
         assert!(gate.should_execute(&quality));
+    }
+
+    #[test]
+    fn weights_converge_toward_predictive_dimension() {
+        let mut gate = QualityGate::new(0.5, 100_000, 0.01);
+        // Use a higher learning rate so convergence is visible in few iterations.
+        gate.weights = QualityWeights::default().with_learning_rate(0.2);
+
+        let initial_adf = gate.weights.adf;
+        let initial_gain = gate.weights.gain;
+
+        // Simulate many trades where adf_strength is predictive (high when
+        // profitable, low when not) but gain is anti-predictive.
+        for i in 0..200 {
+            let profitable = i % 2 == 0;
+            let quality = if profitable {
+                SignalQuality {
+                    ekf_gain: 0.1,
+                    freshness: 0.5,
+                    spread_health: 0.5,
+                    adf_strength: 0.95,
+                }
+            } else {
+                SignalQuality {
+                    ekf_gain: 0.9,
+                    freshness: 0.5,
+                    spread_health: 0.5,
+                    adf_strength: 0.05,
+                }
+            };
+            gate.weights.update_weights(&quality, profitable);
+        }
+
+        // adf weight should have grown, gain weight should have shrunk.
+        assert!(
+            gate.weights.adf > initial_adf,
+            "adf weight should increase: got {} vs initial {}",
+            gate.weights.adf,
+            initial_adf
+        );
+        assert!(
+            gate.weights.gain < initial_gain,
+            "gain weight should decrease: got {} vs initial {}",
+            gate.weights.gain,
+            initial_gain
+        );
+
+        // Weights must still sum to 1.0.
+        let sum =
+            gate.weights.gain + gate.weights.freshness + gate.weights.spread + gate.weights.adf;
+        assert!((sum - 1.0).abs() < 1e-10, "weights sum = {sum}");
     }
 }

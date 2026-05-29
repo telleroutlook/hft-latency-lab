@@ -1,3 +1,4 @@
+pub mod circuit_breaker;
 pub mod cointegration;
 pub mod ekf;
 pub mod execution_path;

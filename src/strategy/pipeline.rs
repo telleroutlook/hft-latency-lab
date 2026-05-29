@@ -9,8 +9,23 @@ use crate::orderbook::book::OrderBook;
 use crate::parser::naive::Message;
 use crate::timer::rdtsc_serialized;
 
+use super::circuit_breaker::CircuitBreaker;
 use super::cointegration;
 use super::ekf::{EKFConfig, EKFSignalFuser};
+use super::quality_gate::{QualityGate, SignalQuality};
+
+/// Extract an approximate timestamp in microseconds from an ITCH message.
+fn approx_timestamp_us(msg: &Message) -> u64 {
+    match msg {
+        Message::AddOrder(a) => a.timestamp_ns / 1000,
+        Message::AddOrderMpid(f) => f.timestamp_ns / 1000,
+        Message::OrderExecuted(e) => e.timestamp_ns / 1000,
+        Message::OrderExecutedWithPrice(c) => c.timestamp_ns / 1000,
+        Message::OrderCancel(x) => x.timestamp_ns / 1000,
+        Message::OrderDelete(d) => d.timestamp_ns / 1000,
+        _ => 0,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -40,6 +55,12 @@ pub struct StrategyConfig {
     /// EKF configuration. When `Some`, the pipeline runs EKF predict+update
     /// after z-score computation to fuse additional signal sources.
     pub ekf_config: Option<EKFConfig>,
+    /// Quality gate: gates trade execution when signal quality is degraded.
+    /// `None` disables quality gating (all signals pass through).
+    pub quality_gate: Option<QualityGate>,
+    /// Circuit breaker: halts trading when safety conditions trigger.
+    /// `None` disables the circuit breaker.
+    pub circuit_breaker: Option<CircuitBreaker>,
 }
 
 impl Default for StrategyConfig {
@@ -55,6 +76,8 @@ impl Default for StrategyConfig {
             retest_interval: 20,
             book_capacity: 4096,
             ekf_config: None,
+            quality_gate: None,
+            circuit_breaker: None,
         }
     }
 }
@@ -330,24 +353,30 @@ pub struct StrategyPipeline {
     spread: SpreadTracker,
     signal: SignalGenerator,
     ekf: Option<EKFSignalFuser>,
+    quality_gate: Option<QualityGate>,
+    circuit_breaker: Option<CircuitBreaker>,
     position: Position,
     stats: PipelineStats,
 }
 
 impl StrategyPipeline {
-    pub fn new(config: StrategyConfig) -> Self {
+    pub fn new(mut config: StrategyConfig) -> Self {
         let capacity = config.book_capacity;
         let lookback = config.lookback;
         let ekf = config
             .ekf_config
             .as_ref()
             .map(|c| EKFSignalFuser::new(c.clone()));
+        let quality_gate = config.quality_gate.take();
+        let circuit_breaker = config.circuit_breaker.take();
         Self {
             book_a: OrderBook::new(capacity),
             book_b: OrderBook::new(capacity),
             spread: SpreadTracker::new(lookback),
             signal: SignalGenerator::new(),
             ekf,
+            quality_gate,
+            circuit_breaker,
             position: Position::Flat,
             stats: PipelineStats::default(),
             config,
@@ -408,7 +437,28 @@ impl StrategyPipeline {
 
         // Stage 5: Z-score signal generation + trade decision.
         let t_sig = rdtsc_serialized();
-        let decision = self.evaluate_signal();
+        let mut decision = self.evaluate_signal();
+
+        // Stage 6: Quality gate — suppress trades when signal quality is degraded.
+        if decision != TradeDecision::Hold {
+            if let Some(ref qg) = self.quality_gate {
+                let quality = self.build_signal_quality();
+                if !qg.should_execute(&quality) {
+                    decision = TradeDecision::Hold;
+                }
+            }
+        }
+
+        // Stage 7: Circuit breaker — suppress trades when safety conditions trigger.
+        if decision != TradeDecision::Hold {
+            if let Some(ref mut cb) = self.circuit_breaker {
+                let now_us = approx_timestamp_us(msg);
+                if !cb.is_active(now_us) {
+                    decision = TradeDecision::Hold;
+                }
+            }
+        }
+
         self.stats.signal_cycles += rdtsc_serialized() - t_sig;
 
         match decision {
@@ -559,6 +609,64 @@ impl StrategyPipeline {
         }
     }
 
+    /// Build a SignalQuality snapshot from current pipeline state.
+    fn build_signal_quality(&self) -> SignalQuality {
+        let ekf_gain = self
+            .ekf
+            .as_ref()
+            .map(|e| e.get_weights().first().copied().unwrap_or(0.0))
+            .unwrap_or(1.0);
+
+        let freshness = self
+            .quality_gate
+            .as_ref()
+            .map(|qg| {
+                // Use a nominal staleness of 0 when we have no timestamp basis.
+                qg.compute_freshness(0)
+            })
+            .unwrap_or(1.0);
+
+        let spread_health = self
+            .quality_gate
+            .as_ref()
+            .map(|qg| {
+                let current_spread = if self.spread.len() >= 2 {
+                    let n = self.spread.len();
+                    (self.spread.prices_a()[n - 1] - self.spread.prices_a()[n - 2]).abs()
+                        + (self.spread.prices_b()[n - 1] - self.spread.prices_b()[n - 2]).abs()
+                } else {
+                    qg.avg_spread
+                };
+                qg.compute_spread_health(current_spread)
+            })
+            .unwrap_or(1.0);
+
+        let adf_strength = {
+            let pval = self.signal.params().adf_pvalue;
+            if pval <= 1.0 {
+                1.0 - pval
+            } else {
+                0.0
+            }
+        };
+
+        SignalQuality {
+            ekf_gain,
+            freshness,
+            spread_health,
+            adf_strength,
+        }
+    }
+
+    /// Record a completed trade's PnL with the circuit breaker.
+    /// Call this after a trade is executed (enter or exit) to update
+    /// drawdown tracking, rate limiting, and consecutive-loss counting.
+    pub fn record_trade_pnl(&mut self, pnl: f64, timestamp_us: u64) {
+        if let Some(ref mut cb) = self.circuit_breaker {
+            cb.record_trade(pnl, timestamp_us);
+        }
+    }
+
     // Accessors
 
     pub fn stats(&self) -> &PipelineStats {
@@ -595,6 +703,8 @@ mod tests {
             retest_interval: 5,
             book_capacity: 256,
             ekf_config: None,
+            quality_gate: None,
+            circuit_breaker: None,
         }
     }
 
