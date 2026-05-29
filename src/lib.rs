@@ -8,4 +8,5 @@ pub mod net;
 pub mod orderbook;
 pub mod parser;
 pub mod pipeline;
+pub mod strategy;
 pub mod timer;

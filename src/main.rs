@@ -8,6 +8,7 @@ mod net;
 mod orderbook;
 mod parser;
 mod pipeline;
+mod strategy;
 mod timer;
 
 use clap::Parser;
