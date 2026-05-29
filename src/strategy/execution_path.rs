@@ -184,8 +184,7 @@ impl ExecutionPlanner {
         // g-score: best known cost to reach each (level, step) state.
         let mut g_score = vec![vec![f64::INFINITY; max_steps + 1]; num_levels + 1];
         // Backtrack: for each state, which (level, step, shares_filled) we came from.
-        let mut came_from: Vec<CameFrom> =
-            vec![vec![None; max_steps + 1]; num_levels + 1];
+        let mut came_from: Vec<CameFrom> = vec![vec![None; max_steps + 1]; num_levels + 1];
 
         g_score[0][initial_step] = 0.0;
 
