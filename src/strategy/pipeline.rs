@@ -10,6 +10,7 @@ use crate::parser::naive::Message;
 use crate::timer::rdtsc_serialized;
 
 use super::cointegration;
+use super::ekf::{EKFConfig, EKFSignalFuser};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -36,6 +37,9 @@ pub struct StrategyConfig {
     pub retest_interval: usize,
     /// Arena capacity for each order book.
     pub book_capacity: usize,
+    /// EKF configuration. When `Some`, the pipeline runs EKF predict+update
+    /// after z-score computation to fuse additional signal sources.
+    pub ekf_config: Option<EKFConfig>,
 }
 
 impl Default for StrategyConfig {
@@ -50,7 +54,19 @@ impl Default for StrategyConfig {
             half_life_bounds: (1.0, 200.0),
             retest_interval: 20,
             book_capacity: 4096,
+            ekf_config: None,
         }
+    }
+}
+
+impl StrategyConfig {
+    /// Default observation noise for the secondary EKF signal source.
+    /// Reads from the EKF config if available, otherwise returns 1.0.
+    pub fn default_observation_noise(&self) -> f64 {
+        self.ekf_config
+            .as_ref()
+            .map(|c| c.default_observation_noise)
+            .unwrap_or(1.0)
     }
 }
 
@@ -308,6 +324,7 @@ pub struct StrategyPipeline {
     book_b: OrderBook,
     spread: SpreadTracker,
     signal: SignalGenerator,
+    ekf: Option<EKFSignalFuser>,
     position: Position,
     stats: PipelineStats,
 }
@@ -316,11 +333,13 @@ impl StrategyPipeline {
     pub fn new(config: StrategyConfig) -> Self {
         let capacity = config.book_capacity;
         let lookback = config.lookback;
+        let ekf = config.ekf_config.as_ref().map(|c| EKFSignalFuser::new(c.clone()));
         Self {
             book_a: OrderBook::new(capacity),
             book_b: OrderBook::new(capacity),
             spread: SpreadTracker::new(lookback),
             signal: SignalGenerator::new(),
+            ekf,
             position: Position::Flat,
             stats: PipelineStats::default(),
             config,
@@ -448,6 +467,12 @@ impl StrategyPipeline {
     }
 
     /// Generate trade decision based on current z-score and position state.
+    ///
+    /// When EKF is configured, runs predict+update to fuse the z-score with an
+    /// additional signal source (e.g. order-flow imbalance).  The EKF-fused
+    /// signal replaces the raw z-score, and the mean Kalman gain modulates the
+    /// effective entry/exit thresholds: higher gain = more confident = tighter
+    /// threshold.
     fn evaluate_signal(&mut self) -> TradeDecision {
         let z = self.signal.update_zscore(&self.spread, &self.config);
         if z == 0.0 {
@@ -459,23 +484,52 @@ impl StrategyPipeline {
             return TradeDecision::Hold;
         }
 
+        // EKF predict + update when configured.
+        let effective_z = if let Some(ekf) = self.ekf.as_mut() {
+            let half_life = self.signal.params().half_life;
+            ekf.predict(1.0, half_life);
+            // Primary observation is the z-score itself; secondary source is a
+            // zero-mean signal (placeholder for future order-flow input).
+            let observations = vec![z, 0.0];
+            let noise = vec![1.0, self.config.default_observation_noise()];
+            ekf.update(&observations, &noise)
+        } else {
+            z
+        };
+
+        // When EKF is active, use the mean Kalman gain as a confidence modifier.
+        // High gain → we trust the signal → use the raw threshold.
+        // Low gain → uncertain → require a stronger signal (wider threshold).
+        let confidence = if let Some(ekf) = self.ekf.as_ref() {
+            let weights = ekf.get_weights();
+            // Primary source weight (index 0) as confidence factor.
+            // Clamp to [0.1, 1.0] to avoid degenerate thresholds.
+            weights.first().copied().unwrap_or(1.0).clamp(0.1, 1.0)
+        } else {
+            1.0
+        };
+
+        // Adjusted thresholds: low confidence → widen (require stronger signal).
+        let adj_entry = self.config.z_entry / confidence;
+        let adj_exit = self.config.z_exit / confidence;
+
         match self.position {
             Position::Flat => {
-                if z.abs() >= self.config.z_entry {
-                    self.position = if z < 0.0 {
+                if effective_z.abs() >= adj_entry {
+                    self.position = if effective_z < 0.0 {
                         Position::Long
                     } else {
                         Position::Short
                     };
                     TradeDecision::Enter {
-                        long: z < 0.0,
+                        long: effective_z < 0.0,
                     }
                 } else {
                     TradeDecision::Hold
                 }
             }
             Position::Long => {
-                if z >= -self.config.z_exit {
+                if effective_z >= -adj_exit {
                     self.position = Position::Flat;
                     TradeDecision::Exit
                 } else {
@@ -483,7 +537,7 @@ impl StrategyPipeline {
                 }
             }
             Position::Short => {
-                if z <= self.config.z_exit {
+                if effective_z <= adj_exit {
                     self.position = Position::Flat;
                     TradeDecision::Exit
                 } else {
@@ -528,6 +582,7 @@ mod tests {
             half_life_bounds: (1.0, 200.0),
             retest_interval: 5,
             book_capacity: 256,
+            ekf_config: None,
         }
     }
 

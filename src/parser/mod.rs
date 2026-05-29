@@ -1,3 +1,4 @@
+pub mod bitmap64;
 pub mod bitmap_filter;
 pub mod diff;
 pub mod naive;
