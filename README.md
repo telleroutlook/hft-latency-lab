@@ -106,8 +106,8 @@ src/
 │   ├── packet_timer.rs      # Per-packet timing
 │   └── raw_socket.rs        # Simulated packet receiver
 └── strategy/
-    ├── cointegration.rs     # Cointegration strategy
-    └── pipeline.rs          # Strategy pipeline
+    ├── cointegration.rs     # Demonstration placeholder (see "Not a trading system")
+    └── pipeline.rs          # Demo pipeline
 ```
 
 ---
