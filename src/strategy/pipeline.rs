@@ -168,6 +168,12 @@ pub struct SignalGenerator {
     ticks_since_retest: usize,
 }
 
+impl Default for SignalGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SignalGenerator {
     pub fn new() -> Self {
         Self {
@@ -748,7 +754,7 @@ mod tests {
             let base_b = 5000.0 + 250.0 * ((i as f64) * 0.3).sin();
 
             // Add a spike to generate z-score signal in the middle.
-            let spike = if i >= 40 && i < 50 { 2000.0 } else { 0.0 };
+            let spike = if (40..50).contains(&i) { 2000.0 } else { 0.0 };
 
             let price_a_buy = (base_a) as u32;
             let price_a_sell = (base_a + 10.0) as u32;

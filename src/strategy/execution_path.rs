@@ -19,6 +19,9 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+/// Back-pointer for A* path reconstruction: (prev_level, prev_step, shares_filled).
+type CameFrom = Vec<Option<(usize, usize, f64)>>;
+
 // ---------------------------------------------------------------------------
 // Side
 // ---------------------------------------------------------------------------
@@ -181,7 +184,7 @@ impl ExecutionPlanner {
         // g-score: best known cost to reach each (level, step) state.
         let mut g_score = vec![vec![f64::INFINITY; max_steps + 1]; num_levels + 1];
         // Backtrack: for each state, which (level, step, shares_filled) we came from.
-        let mut came_from: Vec<Vec<Option<(usize, usize, f64)>>> =
+        let mut came_from: Vec<CameFrom> =
             vec![vec![None; max_steps + 1]; num_levels + 1];
 
         g_score[0][initial_step] = 0.0;
@@ -342,7 +345,7 @@ impl ExecutionPlanner {
         &self,
         goal_level: usize,
         goal_step: usize,
-        came_from: &[Vec<Option<(usize, usize, f64)>>],
+        came_from: &[CameFrom],
         _share_step: f64,
     ) -> Vec<(usize, f64)> {
         let mut path = Vec::new();

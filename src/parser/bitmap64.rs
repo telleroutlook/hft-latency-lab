@@ -18,7 +18,7 @@ impl Bitmap64 {
     /// Create a zeroed bitmap with `n_bits` capacity.
     /// Internally rounds up to the nearest word boundary.
     pub fn new(n_bits: usize) -> Self {
-        let n_words = (n_bits + Self::BITS_PER_WORD - 1) / Self::BITS_PER_WORD;
+        let n_words = n_bits.div_ceil(Self::BITS_PER_WORD);
         Self {
             words: vec![0u64; n_words],
             n_bits,
@@ -306,7 +306,7 @@ mod tests {
         for i in (0..10_000).step_by(7) {
             bm.set(i);
         }
-        assert_eq!(bm.popcount(), (10_000 + 6) / 7);
+        assert_eq!(bm.popcount(), 10_000_usize.div_ceil(7));
     }
 
     #[test]

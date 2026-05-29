@@ -93,7 +93,7 @@ impl EKFSignalFuser {
     pub fn predict(&mut self, dt: f64, half_life: f64) -> f64 {
         let effective_half_life = if half_life > 0.0 { half_life } else { 1e12 };
         let f = 1.0 - dt / effective_half_life;
-        self.state = f * self.state;
+        self.state *= f;
         self.covariance = f * f * self.covariance + self.config.process_noise;
         self.step_count += 1;
         self.state
@@ -179,10 +179,10 @@ impl EKFSignalFuser {
         let n = self.config.observation_dim;
         let mut raw = vec![0.0; n];
         let mut sum = 0.0;
-        for i in 0..n {
+        for (i, slot) in raw.iter_mut().enumerate().take(n) {
             // H_i = 1.0 for all sources, so raw_i = K_i * 1 = K_i.
-            raw[i] = self.kalman_gain[i];
-            sum += raw[i];
+            *slot = self.kalman_gain[i];
+            sum += *slot;
         }
         if sum.abs() < 1e-15 {
             // Uniform weights when no information.
